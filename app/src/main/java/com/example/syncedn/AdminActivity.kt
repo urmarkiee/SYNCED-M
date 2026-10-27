@@ -4596,6 +4596,37 @@ class AdminActivity : AppCompatActivity() {
                     }
                 }
 
+                if (!isEditingSelf && selectedRole.equals("Worship Leader", ignoreCase = true)) {
+                    val activeCode = preferences.getString("teamCode", "").orEmpty()
+                    AlertDialog.Builder(this@AdminActivity)
+                        .setTitle("Transfer Team Leadership")
+                        .setMessage("Assigning $roleMember as Worship Leader will transfer primary team leadership to them.\n\nDo you want to transfer leadership to $roleMember?")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Transfer Leadership") { _, _ ->
+                            TeamRepository.transferTeamLeadership(
+                                teamCode = activeCode,
+                                currentLeaderUid = myUid,
+                                newLeaderUid = targetUid,
+                                newLeaderName = roleMember,
+                                newLeaderEmail = targetEmail,
+                                oldLeaderEmail = myEmail,
+                                preferences = preferences
+                            ) { result ->
+                                runOnUiThread {
+                                    if (result.isSuccess) {
+                                        toast("Leadership successfully transferred to $roleMember!")
+                                        refreshTeamRoster(force = true)
+                                        navigate("home")
+                                    } else {
+                                        toast("Failed to transfer leadership: ${result.exceptionOrNull()?.message}")
+                                    }
+                                }
+                            }
+                        }
+                        .show()
+                    return@setOnClickListener
+                }
+
                 val map = try {
                     org.json.JSONObject(preferences.getString(SessionManager.KEY_MEMBER_ROLES, "{}").orEmpty())
                 } catch (_: Exception) { org.json.JSONObject() }
@@ -4648,6 +4679,62 @@ class AdminActivity : AppCompatActivity() {
         }
         saveBtnRow.addView(saveBtn, dp(140), dp(40))
         col.addView(saveBtnRow)
+
+        val targetUid = roleMemberUid.ifBlank { activeMember?.uid.orEmpty() }
+        val targetEmail = roleMemberEmail.ifBlank { activeMember?.email.orEmpty() }.trim().lowercase()
+        val myEmail = preferences.getString("email", "").orEmpty().trim().lowercase()
+        val myUid = preferences.getString("userId", "").orEmpty()
+        val myName = fullName.ifBlank { displayName }
+        val isEditingSelf = (targetUid.isNotBlank() && targetUid == myUid) ||
+                            (targetEmail.isNotBlank() && targetEmail == myEmail) ||
+                            roleMember.equals(myName, ignoreCase = true)
+
+        if (!isEditingSelf && isLeader) {
+            col.space(16)
+            val transferBtnRow = horizontal().apply { gravity = Gravity.CENTER }
+            val transferBtn = TextView(this).apply {
+                text = "Transfer Leadership"
+                textSize = 14f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.rgb(239, 68, 68))
+                gravity = Gravity.CENTER
+                background = bg(Color.argb(40, 239, 68, 68), 20)
+                setPadding(dp(20), dp(10), dp(20), dp(10))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    val activeCode = preferences.getString("teamCode", "").orEmpty()
+                    AlertDialog.Builder(this@AdminActivity)
+                        .setTitle("Transfer Team Leadership")
+                        .setMessage("Are you sure you want to transfer primary team leadership to $roleMember?\n\nThey will become the new Team Leader and Worship Leader.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Transfer") { _, _ ->
+                            TeamRepository.transferTeamLeadership(
+                                teamCode = activeCode,
+                                currentLeaderUid = myUid,
+                                newLeaderUid = targetUid,
+                                newLeaderName = roleMember,
+                                newLeaderEmail = targetEmail,
+                                oldLeaderEmail = myEmail,
+                                preferences = preferences
+                            ) { result ->
+                                runOnUiThread {
+                                    if (result.isSuccess) {
+                                        toast("Leadership successfully transferred to $roleMember!")
+                                        refreshTeamRoster(force = true)
+                                        navigate("home")
+                                    } else {
+                                        toast("Failed to transfer leadership: ${result.exceptionOrNull()?.message}")
+                                    }
+                                }
+                            }
+                        }
+                        .show()
+                }
+            }
+            transferBtnRow.addView(transferBtn, -2, dp(40))
+            col.addView(transferBtnRow)
+        }
 
         return root
     }
