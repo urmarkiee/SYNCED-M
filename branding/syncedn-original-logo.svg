@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0D1839"/><stop offset="0.58" stop-color="#1C1246"/><stop offset="1" stop-color="#4A1266"/></linearGradient>
+  <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#78E7FF"/><stop offset=".47" stop-color="#3BAEEB"/><stop offset="1" stop-color="#C27EFD"/></linearGradient>
+  <linearGradient id="orbit" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#8F57FB" stop-opacity="0.08"/><stop offset=".5" stop-color="#8B7AFB" stop-opacity=".4"/><stop offset="1" stop-color="#3CCBFA" stop-opacity=".07"/></linearGradient>
+</defs>
+<rect x="28" y="28" width="968" height="968" rx="218" fill="url(#bg)"/>
+<rect x="43" y="43" width="938" height="938" rx="205" fill="none" stroke="#8BDCF6" stroke-opacity="0.52" stroke-width="9"/>
+<circle cx="522" cy="499" r="327" fill="none" stroke="url(#orbit)" stroke-width="12"/>
+<circle cx="522" cy="499" r="285" fill="none" stroke="#5BC8FA" stroke-opacity=".11" stroke-width="4" stroke-dasharray="7 20"/>
+<!-- Music-note N, custom geometric mark: leg, rising diagonal, and upper music stem -->
+<path d="M311 663 L311 351 L708 663 L708 352" fill="none" stroke="url(#ink)" stroke-width="91" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M709 352 Q763 344 788 376" fill="none" stroke="#70E1FA" stroke-width="55" stroke-linecap="round"/>
+<circle cx="311" cy="687" r="68" fill="#64DBFB"/>
+<circle cx="708" cy="686" r="68" fill="#A884FF"/>
+<path d="M326 305 V251 M299 278 H353" stroke="#F7F7FF" stroke-width="24" stroke-linecap="round"/>
+</svg>

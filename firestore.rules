@@ -1,0 +1,605 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId} (matches Firebase Auth UID)
+// Fields:
+//   - uid: string (required, 1-128 chars, matches auth.uid on create, immutable) - Firebase Auth UID
+//   - username: string (optional, 0-50 chars) - Display username
+//   - email: string (optional, valid email format, 0-100 chars) - User's email address
+//   - role: string (optional, allowed: "Leader", "Member", "") - Team authorization level
+//   - teamName: string (optional, 0-100 chars) - Name of the church ministry team
+//   - teamCode: string (optional, 0-20 chars) - 6-character team join code
+//   - fullName: string (optional, 0-100 chars) - Full name of the team member
+//   - phone: string (optional, 0-25 chars) - Contact telephone number
+//   - country: string (optional, 0-50 chars) - Country of residence
+//   - language: string (optional, 0-50 chars) - Preferred interface language
+//   - ministryRole: string (optional, 0-50 chars) - Assigned ministry role (e.g., "Worship Leader", "Guitarist")
+//   - unavailableRanges: list (optional, max 100 items) - Member's unavailable date ranges for scheduling
+//   - notificationsEnabled: bool (optional) - User's push/in-app notification preference
+//   - teamUnmuted: bool (optional) - Whether team chat/alerts are unmuted for this user
+//   - photoUri: string (optional, 0-500 chars) - Profile avatar URI or URL
+//   - removedByLeader: bool (optional) - Flag indicating user was removed from team by leader
+//   - removedTeamCode: string (optional, 0-128 chars) - Team code the user was removed from
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Account creation timestamp
+//   - joinedAt: number | timestamp (optional, >= 0) - Team join timestamp
+//
+// Collection: teams
+// Document ID: {teamCode} (6 uppercase alphanumeric characters, matches teamCode field)
+// Fields:
+//   - teamCode: string (required, 6 chars, uppercase alphanumeric, matches doc ID, immutable) - Team invite code
+//   - teamName: string (required, 1-100 chars) - Ministry team name
+//   - leaderUid: string (required, 1-128 chars, matches creator auth.uid, immutable) - Leader's Firebase Auth UID
+//   - leaderName: string (required, 1-100 chars) - Full name or display name of the team leader
+//   - roles: list (optional, max 50 items) - Customized ministry roles list for the team
+//   - removedMembers: list (optional, max 200 items) - Member IDs or names removed by the leader
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Team creation timestamp
+//
+// Subcollection: teams/{teamCode}/services
+// Document ID: {serviceId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique service ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - title: string (required, 1-100 chars) - Service title
+//   - date: string (required, 0-20 chars) - Service date
+//   - start: string (required, 0-10 chars) - Service start time
+//   - end: string (required, 0-10 chars) - Service end time
+//   - venue: string (required, 1-100 chars) - Service venue
+//   - status: string (required, allowed: 'Draft', 'Published') - Service publication status
+//   - coverImageUrl: string (optional, 0-1000 chars) - Service cover/flyer image URL
+//   - assignments: list (optional, max 50 items) - Role assignments
+//   - rehearsal: map (optional) - Rehearsal schedule details
+//   - songs: list (optional, max 50 items) - Songs in service setlist
+//   - createdBy: string (required, matches creator auth.uid, immutable) - Creator's UID
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Timestamp when created
+//   - updatedAt: number | timestamp (optional, >= 0) - Timestamp when last updated
+//
+// Subcollection: teams/{teamCode}/songs
+// Document ID: {songId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique song ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - title: string (required, 1-120 chars) - Song title
+//   - artist: string (optional, 0-100 chars) - Song artist
+//   - key: string (required, 1-10 chars) - Musical key
+//   - bpm: number | string (optional) - Beats per minute
+//   - sheet: string (optional, 0-30000 chars) - Chord sheet / arrangement
+//   - lyrics: string (optional, 0-20000 chars) - Song lyrics
+//   - referenceUrl: string (optional, valid URL) - Audio/video reference URL
+//   - createdBy: string (required, matches creator auth.uid, immutable) - Creator's UID
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Timestamp when created
+//   - updatedAt: number | timestamp (optional, >= 0) - Last update timestamp
+//
+// Subcollection: teams/{teamCode}/announcements
+// Document ID: {announcementId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique announcement ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - title: string (required, 1-120 chars) - Announcement headline
+//   - message: string (required, 1-2000 chars) - Announcement body content
+//   - urgent: bool (required) - High-priority / urgent alert flag
+//   - author: string (optional, 0-100 chars) - Display name or attribution of the author
+//   - createdBy: string (required, matches creator auth.uid, immutable) - Creator's UID
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Timestamp when created
+//   - updatedAt: number | timestamp (optional, >= 0) - Timestamp when last updated
+//
+// Subcollection: teams/{teamCode}/substitutions
+// Document ID: {substitutionId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique substitution ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - serviceId: string (optional, 0-128 chars) - Linked Service document ID
+//   - serviceTitle: string (required, 1-120 chars) - Service headline / title
+//   - serviceDate: string (optional, 0-50 chars) - Date of service (YYYY-MM-DD)
+//   - requesterUid: string (required, 1-128 chars, immutable) - Requesting member's UID
+//   - requesterName: string (required, 1-100 chars) - Full name of requester
+//   - role: string (required, 1-50 chars) - Assigned ministry role needing substitution
+//   - substituteUid: string (required, 1-128 chars) - Proposed substitute teammate's UID
+//   - substituteName: string (required, 1-100 chars) - Full name of proposed substitute
+//   - reason: string (required, 1-500 chars) - Explanation for substitution request
+//   - type: string (optional, 0-50 chars) - Substitution request type
+//   - status: string (required, allowed: 'Pending', 'Substitute Accepted', 'Accepted', 'Approved', 'Declined', 'Cancelled') - Request state
+//   - createdBy: string (required, matches requesterUid, immutable) - Creator's UID
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Creation timestamp
+//   - updatedAt: number | timestamp (optional, >= 0) - Last update timestamp
+//
+// Subcollection: teams/{teamCode}/messages
+// Document ID: {messageId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique message ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - senderUid: string (required, 1-128 chars, immutable) - Sender's user ID
+//   - senderName: string (required, 1-100 chars) - Display name of sender
+//   - senderRole: string (optional, 0-50 chars) - Role of sender
+//   - senderPhotoUri: string (optional, 0-500 chars) - Avatar URI or URL
+//   - text: string (optional, 0-2000 chars) - Message text content
+//   - mediaUrl: string (optional, 0-500 chars) - Attached image or media URI / URL
+//   - timestamp: number | timestamp (required, immutable) - Sending timestamp
+//   - isEdited: bool (optional) - Whether the message has been edited
+//   - editedAt: number | timestamp (optional, >= 0) - Timestamp when edited
+//
+// Subcollection: teams/{teamCode}/reports
+// Document ID: {reportId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique report ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Team invite code
+//   - reporterUid: string (required, 1-128 chars, immutable) - Reporter's user ID
+//   - reporterName: string (required, 1-100 chars) - Display name of reporter
+//   - reason: string (required, 1-1000 chars) - Report description / reason
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Report creation timestamp
+//
+// Subcollection: teams/{teamCode}/rejoin_requests
+// Document ID: {requestId} (matches id field)
+// Fields:
+//   - id: string (required, matches doc ID, immutable) - Unique request ID
+//   - teamCode: string (required, matches parent teamCode, immutable) - Target team invite code
+//   - userUid: string (required, 1-128 chars, immutable) - Requesting user's UID
+//   - userName: string (required, 1-100 chars) - Display name of requesting user
+//   - userEmail: string (optional, 0-100 chars) - Email of requesting user
+//   - reason: string (optional, 0-500 chars) - Reason for re-joining
+//   - status: string (required, allowed: 'Pending', 'Approved', 'Declined', 'Cancelled') - Request state
+//   - createdAt: number | timestamp (optional, >= 0, immutable) - Creation timestamp
+//   - updatedAt: number | timestamp (optional, >= 0) - Last update timestamp
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Standard Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user owns the resource (for user-owned documents by path ID)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validate required fields exist in a given map
+    function hasRequiredFields(data, fields) {
+      return data.keys().hasAll(fields);
+    }
+
+    // Validate that the document contains only the allowed fields
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    // Validate URL format (must start with https:// or http://)
+    function isValidUrl(url) {
+      return url is string &&
+        (url.matches('^https://.*') || url.matches('^http://.*'));
+    }
+
+    // Validate email format
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Validate that immutable fields have not been altered on update
+    function areImmutableFieldsUnchanged(fields) {
+      return resource != null && !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Application-Specific Authorization Helpers
+    // ===============================================================
+
+    // Check if the authenticated user is the designated Leader of a given team
+    function isLeaderOfTeam(teamCode) {
+      return isAuthenticated() && teamCode != null && teamCode != '' && (
+        (exists(/databases/$(database)/documents/teams/$(teamCode)) &&
+         get(/databases/$(database)/documents/teams/$(teamCode)).data.leaderUid == request.auth.uid)
+      );
+    }
+
+    // Check if the authenticated user belongs to the same team
+    function isSameTeam(teamCode) {
+      return isAuthenticated() && teamCode != null && teamCode != '' &&
+        exists(/databases/$(database)/documents/teams/$(teamCode)) && (
+        isLeaderOfTeam(teamCode) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teamCode == teamCode &&
+         (!('removedByLeader' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedByLeader == false))
+      );
+    }
+
+    function isRemovedFromTeam(teamCode) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedByLeader == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedTeamCode == teamCode;
+    }
+
+    // Team leaders may change only team-managed fields on another member's
+    // existing profile. Membership changes are limited to removal or approval
+    // of a previously removed member; identity and account fields stay immutable.
+    function isLeaderManagedUserUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let oldTeam = resource.data.teamCode;
+      let newTeam = request.resource.data.teamCode;
+      return isAuthenticated() && userId != request.auth.uid &&
+        isValidUser(request.resource.data, userId) &&
+        areImmutableFieldsUnchanged(['uid', 'createdAt', 'email']) &&
+        changed.hasOnly([
+          'role', 'ministryRole', 'teamCode', 'teamName',
+          'removedByLeader', 'removedTeamCode', 'joinedAt'
+        ]) &&
+        ((oldTeam is string && oldTeam != '' && isLeaderOfTeam(oldTeam) &&
+          (newTeam == oldTeam ||
+           (newTeam == '' && request.resource.data.removedByLeader == true &&
+            request.resource.data.removedTeamCode == oldTeam))) ||
+         (resource.data.removedByLeader == true &&
+          resource.data.removedTeamCode is string &&
+          newTeam == resource.data.removedTeamCode &&
+          isLeaderOfTeam(newTeam) &&
+          request.resource.data.removedByLeader == false &&
+          request.resource.data.removedTeamCode == ''));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Strict validator for /users/{userId} documents
+    function isValidUser(data, userId) {
+      return hasOnlyAllowedFields(data, [
+        'uid', 'username', 'email', 'role', 'teamName', 'teamCode',
+        'fullName', 'phone', 'country', 'language',
+        'ministryRole', 'unavailableRanges', 'notificationsEnabled', 'teamUnmuted',
+        'fcmToken', 'photoUri', 'createdAt', 'joinedAt',
+        'removedByLeader', 'removedTeamCode'
+      ]) &&
+      hasRequiredFields(data, ['uid']) &&
+      data.uid is string &&
+      data.uid == userId &&
+      data.uid.size() > 0 &&
+      data.uid.size() <= 128 &&
+      (!('username' in data) || (data.username is string && data.username.size() <= 50)) &&
+      (!('email' in data) || (data.email is string && data.email.size() <= 100 && (data.email == '' || isValidEmail(data.email)))) &&
+      (!('role' in data) || (data.role is string && data.role in ['Leader', 'Member', ''])) &&
+      (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 100)) &&
+      (!('teamCode' in data) || (data.teamCode is string && data.teamCode.size() <= 20)) &&
+      (!('fullName' in data) || (data.fullName is string && data.fullName.size() <= 100)) &&
+      (!('phone' in data) || (data.phone is string && data.phone.size() <= 25)) &&
+      (!('country' in data) || (data.country is string && data.country.size() <= 50)) &&
+      (!('language' in data) || (data.language is string && data.language.size() <= 50)) &&
+      (!('ministryRole' in data) || (data.ministryRole is string && data.ministryRole.size() <= 50)) &&
+      (!('unavailableRanges' in data) || (data.unavailableRanges is list && data.unavailableRanges.size() <= 100)) &&
+      (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
+      (!('teamUnmuted' in data) || data.teamUnmuted is bool) &&
+      (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 500)) &&
+      (!('photoUri' in data) || (data.photoUri is string && data.photoUri.size() <= 500)) &&
+      (!('removedByLeader' in data) || data.removedByLeader is bool) &&
+      (!('removedTeamCode' in data) || (data.removedTeamCode is string && data.removedTeamCode.size() <= 128)) &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('joinedAt' in data) || (data.joinedAt is number && data.joinedAt >= 0) || (data.joinedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode} documents
+    function isValidTeam(data, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'teamCode', 'teamName', 'leaderUid', 'leaderName', 'roles', 'removedMembers', 'createdAt'
+      ]) &&
+      hasRequiredFields(data, ['teamCode', 'teamName', 'leaderUid', 'leaderName']) &&
+      data.teamCode is string &&
+      data.teamCode == teamCode &&
+      data.teamCode.matches('^[A-Z0-9]{6}$') &&
+      data.teamName is string &&
+      data.teamName.size() > 0 &&
+      data.teamName.size() <= 100 &&
+      data.leaderUid is string &&
+      data.leaderUid.size() > 0 &&
+      data.leaderUid.size() <= 128 &&
+      data.leaderName is string &&
+      data.leaderName.size() > 0 &&
+      data.leaderName.size() <= 100 &&
+      (!('roles' in data) || (data.roles is list && data.roles.size() <= 50)) &&
+      (!('removedMembers' in data) || (data.removedMembers is list && data.removedMembers.size() <= 200)) &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/services/{serviceId} documents
+    function isValidService(data, serviceId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'title', 'date', 'start', 'end', 'venue',
+        'status', 'coverImageUrl', 'assignments', 'rehearsal', 'songs', 'createdBy',
+        'createdAt', 'updatedAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'title', 'date', 'start', 'end', 'venue', 'status', 'createdBy']) &&
+      data.id is string && data.id == serviceId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
+      data.date is string && data.date.size() <= 20 &&
+      data.start is string && data.start.size() <= 10 &&
+      data.end is string && data.end.size() <= 10 &&
+      data.venue is string && data.venue.size() > 0 && data.venue.size() <= 100 &&
+      data.status is string && data.status in ['Draft', 'Published'] &&
+      (!('coverImageUrl' in data) || (data.coverImageUrl is string && data.coverImageUrl.size() <= 1000)) &&
+      (!('assignments' in data) || (data.assignments is list && data.assignments.size() <= 50)) &&
+      (!('rehearsal' in data) || data.rehearsal is map) &&
+      (!('songs' in data) || (data.songs is list && data.songs.size() <= 50)) &&
+      data.createdBy is string && data.createdBy.size() > 0 &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0) || (data.updatedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/songs/{songId} documents (Group 4)
+    function isValidSong(data, songId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'title', 'artist', 'key', 'bpm', 'sheet', 'lyrics',
+        'referenceUrl', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'title', 'key', 'createdBy']) &&
+      data.id is string && data.id == songId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+      (!('artist' in data) || (data.artist is string && data.artist.size() <= 100)) &&
+      data.key is string && data.key.size() > 0 && data.key.size() <= 10 &&
+      (!('bpm' in data) || data.bpm is number || (data.bpm is string && data.bpm.size() <= 10)) &&
+      (!('sheet' in data) || (data.sheet is string && data.sheet.size() <= 30000)) &&
+      (!('lyrics' in data) || (data.lyrics is string && data.lyrics.size() <= 20000)) &&
+      (!('referenceUrl' in data) || data.referenceUrl == '' || isValidUrl(data.referenceUrl)) &&
+      data.createdBy is string && data.createdBy.size() > 0 &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0) || (data.updatedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/announcements/{announcementId} documents (Group 5)
+    function isValidAnnouncement(data, announcementId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'title', 'message', 'urgent', 'author',
+        'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'title', 'message', 'createdBy']) &&
+      data.id is string && data.id == announcementId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+      data.message is string && data.message.size() > 0 && data.message.size() <= 2000 &&
+      data.urgent is bool &&
+      (!('author' in data) || (data.author is string && data.author.size() <= 100)) &&
+      data.createdBy is string && data.createdBy.size() > 0 &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0) || (data.updatedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/substitutions/{substitutionId} documents (Group 6)
+    function isValidSubstitution(data, substitutionId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'serviceId', 'serviceTitle', 'serviceDate',
+        'requesterUid', 'requesterName', 'role', 'substituteUid',
+        'substituteName', 'reason', 'type', 'status', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      hasRequiredFields(data, [
+        'id', 'teamCode', 'serviceTitle', 'requesterUid', 'requesterName',
+        'role', 'substituteUid', 'substituteName', 'reason', 'status', 'createdBy'
+      ]) &&
+      data.id is string && data.id == substitutionId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.serviceTitle is string && data.serviceTitle.size() > 0 && data.serviceTitle.size() <= 120 &&
+      (!('serviceId' in data) || (data.serviceId is string && data.serviceId.size() <= 128)) &&
+      (!('serviceDate' in data) || (data.serviceDate is string && data.serviceDate.size() <= 50)) &&
+      data.requesterUid is string && data.requesterUid.size() > 0 && data.requesterUid.size() <= 128 &&
+      data.requesterName is string && data.requesterName.size() > 0 && data.requesterName.size() <= 100 &&
+      data.role is string && data.role.size() > 0 && data.role.size() <= 50 &&
+      data.substituteUid is string && data.substituteUid.size() > 0 && data.substituteUid.size() <= 128 &&
+      data.requesterUid != data.substituteUid &&
+      data.substituteName is string && data.substituteName.size() > 0 && data.substituteName.size() <= 100 &&
+      data.reason is string && data.reason.size() > 0 && data.reason.size() <= 500 &&
+      (!('type' in data) || (data.type is string && data.type.size() <= 50)) &&
+      data.status in ['Pending', 'Substitute Accepted', 'Accepted', 'Approved', 'Declined', 'Cancelled'] &&
+      data.createdBy is string && data.createdBy.size() > 0 && data.createdBy.size() <= 128 &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0) || (data.updatedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/messages/{messageId} documents
+    function isValidChatMessage(data, messageId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'senderUid', 'senderName', 'senderRole',
+        'senderPhotoUri', 'text', 'mediaUrl', 'timestamp', 'isEdited', 'editedAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'senderUid', 'senderName', 'timestamp']) &&
+      data.id is string && data.id == messageId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.senderUid is string && data.senderUid.size() > 0 && data.senderUid.size() <= 128 &&
+      data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 100 &&
+      (!('senderRole' in data) || (data.senderRole is string && data.senderRole.size() <= 50)) &&
+      (!('senderPhotoUri' in data) || (data.senderPhotoUri is string && data.senderPhotoUri.size() <= 500)) &&
+      (!('text' in data) || (data.text is string && data.text.size() <= 2000)) &&
+      (!('mediaUrl' in data) || (data.mediaUrl is string && data.mediaUrl.size() <= 500)) &&
+      (('text' in data && data.text.size() > 0) || ('mediaUrl' in data && data.mediaUrl.size() > 0)) &&
+      ((data.timestamp is number && data.timestamp >= 0) || (data.timestamp is timestamp)) &&
+      (!('isEdited' in data) || data.isEdited is bool) &&
+      (!('editedAt' in data) || (data.editedAt is number && data.editedAt >= 0) || (data.editedAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/reports/{reportId} documents
+    function isValidTeamReport(data, reportId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'reporterUid', 'reporterName', 'reason', 'createdAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'reporterUid', 'reporterName', 'reason']) &&
+      data.id is string && data.id == reportId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.reporterUid is string && data.reporterUid.size() > 0 && data.reporterUid.size() <= 128 &&
+      data.reporterName is string && data.reporterName.size() > 0 && data.reporterName.size() <= 100 &&
+      data.reason is string && data.reason.size() > 0 && data.reason.size() <= 1000 &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp));
+    }
+
+    // Strict validator for /teams/{teamCode}/rejoin_requests/{requestId} documents
+    function isValidRejoinRequest(data, requestId, teamCode) {
+      return hasOnlyAllowedFields(data, [
+        'id', 'teamCode', 'userUid', 'userName', 'userEmail',
+        'reason', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      hasRequiredFields(data, ['id', 'teamCode', 'userUid', 'userName', 'status']) &&
+      data.id is string && data.id == requestId &&
+      data.teamCode is string && data.teamCode == teamCode &&
+      data.userUid is string && data.userUid.size() > 0 && data.userUid.size() <= 128 &&
+      data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+      (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 100)) &&
+      (!('reason' in data) || (data.reason is string && data.reason.size() <= 500)) &&
+      data.status in ['Pending', 'Approved', 'Declined', 'Cancelled'] &&
+      (!('createdAt' in data) || (data.createdAt is number && data.createdAt >= 0) || (data.createdAt is timestamp)) &&
+      (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0) || (data.updatedAt is timestamp));
+    }
+
+    // ===============================================================
+    // Collection Match Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) ||
+        (resource.data.teamCode is string && isSameTeam(resource.data.teamCode));
+      allow list: if isAuthenticated() && resource.data.teamCode is string &&
+        isSameTeam(resource.data.teamCode);
+
+      allow create: if isOwner(userId) &&
+        isValidUser(request.resource.data, userId) &&
+        (!('email' in request.resource.data) || request.resource.data.email == request.auth.token.email) &&
+        (!('teamCode' in request.resource.data) || request.resource.data.teamCode == '') &&
+        (!('teamName' in request.resource.data) || request.resource.data.teamName == '') &&
+        (!('role' in request.resource.data) || request.resource.data.role in ['', 'Member']) &&
+        (!('removedByLeader' in request.resource.data) || request.resource.data.removedByLeader == false) &&
+        (!('removedTeamCode' in request.resource.data) || request.resource.data.removedTeamCode == '');
+
+      allow update: if isOwner(userId) &&
+        isValidUser(request.resource.data, userId) &&
+        areImmutableFieldsUnchanged(['uid', 'createdAt', 'email']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
+          ['role', 'removedByLeader', 'removedTeamCode']) ||
+          ((!('role' in resource.data) || resource.data.role == '') &&
+            request.resource.data.role == 'Member') ||
+          isLeaderOfTeam(resource.data.teamCode) || isLeaderOfTeam(request.resource.data.teamCode)) ||
+        isLeaderManagedUserUpdate(userId);
+
+      allow delete: if isOwner(userId);
+    }
+
+    match /teams/{teamCode} {
+      // The invite code is the lookup key; clients cannot enumerate all teams.
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated() &&
+        isValidTeam(request.resource.data, teamCode) &&
+        request.resource.data.leaderUid == request.auth.uid;
+      allow update: if isLeaderOfTeam(teamCode) &&
+        isValidTeam(request.resource.data, teamCode) &&
+        areImmutableFieldsUnchanged(['teamCode', 'leaderUid', 'createdAt']);
+      allow delete: if isLeaderOfTeam(teamCode);
+
+      match /services/{serviceId} {
+        allow read: if isSameTeam(teamCode);
+        allow create: if isLeaderOfTeam(teamCode) &&
+          isValidService(request.resource.data, serviceId, teamCode) &&
+          request.resource.data.createdBy == request.auth.uid;
+        allow update: if isLeaderOfTeam(teamCode) &&
+          isValidService(request.resource.data, serviceId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']);
+        allow delete: if isLeaderOfTeam(teamCode);
+      }
+
+      match /songs/{songId} {
+        allow read: if isSameTeam(teamCode);
+        allow create: if isLeaderOfTeam(teamCode) &&
+          isValidSong(request.resource.data, songId, teamCode) &&
+          request.resource.data.createdBy == request.auth.uid;
+        allow update: if isLeaderOfTeam(teamCode) &&
+          isValidSong(request.resource.data, songId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']);
+        allow delete: if isLeaderOfTeam(teamCode);
+      }
+
+      match /announcements/{announcementId} {
+        allow read: if isSameTeam(teamCode);
+        allow create: if isLeaderOfTeam(teamCode) &&
+          isValidAnnouncement(request.resource.data, announcementId, teamCode) &&
+          request.resource.data.createdBy == request.auth.uid;
+        allow update: if isLeaderOfTeam(teamCode) &&
+          isValidAnnouncement(request.resource.data, announcementId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']);
+        allow delete: if isLeaderOfTeam(teamCode);
+      }
+
+      match /substitutions/{substitutionId} {
+        allow read: if isSameTeam(teamCode);
+        allow create: if isSameTeam(teamCode) &&
+          isValidSubstitution(request.resource.data, substitutionId, teamCode) &&
+          request.resource.data.requesterUid == request.auth.uid &&
+          request.resource.data.createdBy == request.auth.uid;
+        allow update: if isSameTeam(teamCode) &&
+          isValidSubstitution(request.resource.data, substitutionId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'requesterUid', 'createdBy', 'createdAt']) &&
+          (isLeaderOfTeam(teamCode) ||
+            (request.auth.uid == resource.data.requesterUid &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+              resource.data.status == 'Pending' && request.resource.data.status == 'Cancelled') ||
+            (request.auth.uid == resource.data.substituteUid &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+              resource.data.status == 'Pending' &&
+              request.resource.data.status in ['Substitute Accepted', 'Accepted', 'Declined']));
+        allow delete: if isLeaderOfTeam(teamCode) ||
+          (isSameTeam(teamCode) && request.auth.uid == resource.data.requesterUid);
+      }
+
+      match /messages/{messageId} {
+        allow read: if isSameTeam(teamCode);
+        allow create: if isSameTeam(teamCode) &&
+          isValidChatMessage(request.resource.data, messageId, teamCode) &&
+          request.resource.data.senderUid == request.auth.uid;
+        allow update: if isSameTeam(teamCode) &&
+          isValidChatMessage(request.resource.data, messageId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'senderUid', 'timestamp']) &&
+          (isLeaderOfTeam(teamCode) || request.auth.uid == resource.data.senderUid);
+        allow delete: if isSameTeam(teamCode) &&
+          (isLeaderOfTeam(teamCode) || request.auth.uid == resource.data.senderUid);
+      }
+
+      match /reports/{reportId} {
+        allow get, list: if isLeaderOfTeam(teamCode);
+        allow create: if isSameTeam(teamCode) &&
+          isValidTeamReport(request.resource.data, reportId, teamCode) &&
+          request.resource.data.reporterUid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isLeaderOfTeam(teamCode);
+      }
+
+      match /rejoin_requests/{requestId} {
+        allow get, list: if isLeaderOfTeam(teamCode) ||
+          (isAuthenticated() && resource.data.userUid == request.auth.uid);
+        allow create: if (isRemovedFromTeam(teamCode) || isLeaderOfTeam(teamCode)) &&
+          isValidRejoinRequest(request.resource.data, requestId, teamCode) &&
+          request.resource.data.userUid == request.auth.uid;
+        allow update: if isValidRejoinRequest(request.resource.data, requestId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'userUid', 'createdAt']) &&
+          (isLeaderOfTeam(teamCode) ||
+            (isAuthenticated() && request.auth.uid == resource.data.userUid &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+              resource.data.status == 'Pending' && request.resource.data.status == 'Cancelled'));
+        allow delete: if isLeaderOfTeam(teamCode) ||
+          (isAuthenticated() && request.auth.uid == resource.data.userUid);
+      }
+    }
+
+    // Passwords and reset challenges are managed by Firebase Authentication; clients have no access here.
+    match /password_resets/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "811884997432",
+    "project_id": "synedn",
+    "storage_bucket": "synedn.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:811884997432:android:85c910e2591bca405cafcd",
+        "android_client_info": {
+          "package_name": "com.example.syncedn"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "811884997432-m682rjupqepagek4ft257ffgo4lqkn0s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.syncedn",
+            "certificate_hash": "7c79ad806edf776f27713af08990139a91a46e19"
+          }
+        },
+        {
+          "client_id": "811884997432-jsflthifrbv7ssv77u4dmliin2dsit0a.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQTstlpW-xCZHtVgqtHADGJfsLu23p8DA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "811884997432-jsflthifrbv7ssv77u4dmliin2dsit0a.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
