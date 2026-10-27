@@ -1248,6 +1248,86 @@ object TeamRepository {
     }
 
     /**
+     * Permanently deletes a team from Firestore (/teams/{teamCode}), clears team associations
+     * for all members in /users, and resets local cached team preferences.
+     */
+    fun deleteTeam(
+        teamCode: String,
+        leaderUid: String,
+        preferences: android.content.SharedPreferences? = null,
+        onComplete: (Result<Unit>) -> Unit = {}
+    ) {
+        val code = teamCode.trim().uppercase()
+        if (code.isBlank()) {
+            onComplete(Result.failure(IllegalArgumentException("Invalid team code")))
+            return
+        }
+
+        // 1. Delete /teams/{code}
+        val teamRef = db.collection(TEAMS_COLLECTION).document(code)
+        teamRef.delete()
+            .addOnSuccessListener {
+                db.collection(USERS_COLLECTION)
+                    .whereEqualTo("teamCode", code)
+                    .get()
+                    .addOnSuccessListener { snapshot ->
+                        val batch = db.batch()
+                        for (doc in snapshot.documents) {
+                            batch.update(doc.reference, mapOf<String, Any>(
+                                "teamCode" to "",
+                                "teamName" to "",
+                                "ministryRole" to "",
+                                "role" to "Member"
+                            ))
+                        }
+                        batch.commit().addOnCompleteListener {
+                            cachedRosters.remove(code)
+                            if (preferences != null) {
+                                preferences.edit {
+                                    remove("teamCode")
+                                    remove("teamName")
+                                    putString("role", "Member")
+                                    putString(com.example.syncedn.data.auth.SessionManager.KEY_ROLE, "Member")
+                                    putString("ministryRole", "Member")
+                                    putString(com.example.syncedn.data.auth.SessionManager.KEY_MINISTRY_ROLE, "Member")
+                                }
+                            }
+                            onComplete(Result.success(Unit))
+                        }
+                    }
+                    .addOnFailureListener {
+                        cachedRosters.remove(code)
+                        if (preferences != null) {
+                            preferences.edit {
+                                remove("teamCode")
+                                remove("teamName")
+                                putString("role", "Member")
+                                putString(com.example.syncedn.data.auth.SessionManager.KEY_ROLE, "Member")
+                                putString("ministryRole", "Member")
+                                putString(com.example.syncedn.data.auth.SessionManager.KEY_MINISTRY_ROLE, "Member")
+                            }
+                        }
+                        onComplete(Result.success(Unit))
+                    }
+            }
+            .addOnFailureListener { e ->
+                android.util.Log.e("TeamRepository", "Failed to delete team $code: ${e.message}", e)
+                cachedRosters.remove(code)
+                if (preferences != null) {
+                    preferences.edit {
+                        remove("teamCode")
+                        remove("teamName")
+                        putString("role", "Member")
+                        putString(com.example.syncedn.data.auth.SessionManager.KEY_ROLE, "Member")
+                        putString("ministryRole", "Member")
+                        putString(com.example.syncedn.data.auth.SessionManager.KEY_MINISTRY_ROLE, "Member")
+                    }
+                }
+                onComplete(Result.success(Unit))
+            }
+    }
+
+    /**
      * Resets a user's team membership in Firestore (voluntary leave).
      * Does NOT mark as removedByLeader, allowing them to rejoin with a valid code.
      */

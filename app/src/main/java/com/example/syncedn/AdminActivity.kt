@@ -7211,6 +7211,46 @@ class AdminActivity : AppCompatActivity() {
                 }
         }); col.space(4)
 
+        if (isLeader) {
+            col.add(teamDetailAction("trash", "Delete Team") {
+                AlertDialog.Builder(this)
+                    .setTitle("Delete Team Permanently?")
+                    .setMessage("Are you sure you want to permanently delete '$teamName'?\n\nThis will remove all team members, clear all scheduled services, setlists, announcements, and team messages.\n\nThis action CANNOT be undone.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete Team") { _, _ ->
+                        val activeCode = preferences.getString("teamCode", "").orEmpty()
+                            .ifBlank { FirestoreManager.findCodeByTeamName(teamName).orEmpty() }
+                        val leaderUid = currentUserId()
+                        val progress = android.app.ProgressDialog(this).apply {
+                            setMessage("Deleting team...")
+                            setCancelable(false)
+                            show()
+                        }
+                        TeamRepository.deleteTeam(activeCode, leaderUid, preferences) { result ->
+                            runOnUiThread {
+                                progress.dismiss()
+                                if (result.isSuccess) {
+                                    com.example.syncedn.data.auth.SyncedFirebaseMessagingService.unsubscribeFromTeam(activeCode)
+                                    com.example.syncedn.data.auth.SyncedMessagingService.stopRealtimeTeamWatchers()
+                                    preferences.edit()
+                                        .remove("teamName")
+                                        .remove("teamCode")
+                                        .remove("role")
+                                        .remove("ministryRole")
+                                        .apply()
+                                    teamName = ""
+                                    toast("Team was permanently deleted.")
+                                    navigate("teamChoice")
+                                } else {
+                                    toast("Failed to delete team: ${result.exceptionOrNull()?.message}")
+                                }
+                            }
+                        }
+                    }
+                    .show()
+            }); col.space(4)
+        }
+
         col.add(teamDetailAction("leave_team", "Leave") {
             val uid = preferences.getString("userId", "").orEmpty().ifBlank {
                 com.example.syncedn.data.auth.AuthManager.currentUser?.uid.orEmpty()
