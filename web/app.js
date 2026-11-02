@@ -720,6 +720,17 @@ function formatChordSheet(sheet) {
   }).join("\n");
 }
 
+function generateLyricsFromChordSheet(sheet) {
+  const chordToken = /^(?:[A-G][#b♯♭]?(?:(?:maj|min|dim|aug|sus|add|omit|no|alt|m|M)|[0-9#b♯♭(),°ø+\-])*(?:\/[A-G][#b♯♭]?)?|N\.C\.|[|:%]+)$/i;
+  const isChord = (value) => chordToken.test(value.trim());
+  const output = String(sheet || "").replace(/\r\n?/g, "\n").split("\n").map((line) => {
+    const tokens = line.trim().replace(/[\[\]]/g, "").split(/\s+/).filter(Boolean);
+    if (tokens.length && tokens.every(isChord)) return "";
+    return line.replace(/\[([^\]\r\n]+)\]/g, (tag, value) => isChord(value) ? "" : tag).replace(/[ \t]{2,}/g, " ").trim();
+  });
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function songReferenceMarkup(reference) {
   if (!/^https?:\/\//i.test(reference || "")) return "";
   try {
@@ -755,7 +766,9 @@ function openSong(song) {
   const reference = clean(song.referenceUrl || "");
   const safeReference = songReferenceMarkup(reference);
   const sheet = song.sheet?.trim() ? `<div><div class="transpose-controls"><strong>Chord sheet</strong><span><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="song-key-label">Key ${escapeHtml(song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span></div><div class="sheet-actions"><button class="link-button" data-action="toggle-sheet-scroll" type="button">Start auto-scroll</button><button class="link-button" data-action="format-song-sheet" data-id="${escapeHtml(song.id)}" type="button">Format sections</button></div><label class="scroll-speed-control" for="sheet-scroll-speed"><span>Auto-scroll speed</span><input id="sheet-scroll-speed" type="range" min="10" max="100" step="5" value="35"><output id="sheet-scroll-speed-value">35 px/s</output></label><pre id="song-sheet">${escapeHtml(formatChordSheet(song.sheet))}</pre></div>` : `<div class="sheet-empty"><strong>Chord sheet not added yet</strong><p>Ask your team leader to add the chart to this song in the shared song library.</p></div>`;
-  const lyrics = song.lyrics?.trim() ? `<div class="song-lyrics"><strong>Lyrics</strong><p>${escapeHtml(song.lyrics)}</p></div>` : `<div class="sheet-empty"><strong>Lyrics not added yet</strong><p>Ask your team leader to add the lyrics to this song in the shared song library.</p></div>`;
+  const generatedLyrics = generateLyricsFromChordSheet(song.sheet || "");
+  const lyricText = generatedLyrics || song.lyrics?.trim() || "";
+  const lyrics = lyricText ? `<div class="song-lyrics"><strong>Lyrics</strong><p>${escapeHtml(lyricText)}</p></div>` : `<div class="sheet-empty"><strong>Lyrics could not be extracted</strong><p>Add the words to the chord sheet, either below chord lines or with chord symbols in brackets.</p></div>`;
   const metronome = Number(song.bpm) > 0 ? `<button class="button button-quiet" data-action="metronome" data-bpm="${Math.max(30, Math.min(240, Number(song.bpm)))}" type="button">▶ Start metronome · ${escapeHtml(song.bpm)} BPM</button>` : "";
   const roleView = displayMode === "lyrics" ? "VOCALIST VIEW" : displayMode === "chords" ? "INSTRUMENTALIST VIEW" : "TEAM SONG";
   const detail = displayMode === "lyrics" ? lyrics : displayMode === "chords" ? `${sheet}${safeReference}${metronome}` : `${sheet}${lyrics}${safeReference || `<p class="muted">No audio or video reference has been added.</p>`}${metronome}`;
@@ -772,10 +785,11 @@ function editSong(song) {
     { name: "key", label: "Musical key", required: true, maxLength: 10, value: song.key || "C" },
     { name: "bpm", label: "Tempo (BPM)", type: "number", min: "1", step: "1", value: song.bpm || 74 },
     { name: "referenceUrl", label: "Audio or video link", type: "url", value: song.referenceUrl || "" },
-    { name: "sheet", label: "Chord sheet", type: "textarea", maxLength: 30000, value: song.sheet || "" },
-    { name: "lyrics", label: "Lyrics", type: "textarea", maxLength: 20000, value: song.lyrics || "" }
+    { name: "sheet", label: "Chord sheet", type: "textarea", maxLength: 30000, value: song.sheet || "", placeholder: "Paste chords and lyrics together. Singer lyrics will be generated automatically." }
   ], "Save song", async (values) => {
-    await updateDoc(doc(db, "teams", state.teamCode, "songs", song.id), { title: clean(values.title).slice(0, 120), artist: clean(values.artist).slice(0, 100), key: clean(values.key).slice(0, 10), bpm: Number(values.bpm) || 74, referenceUrl: clean(values.referenceUrl).slice(0, 1000), sheet: String(values.sheet || "").slice(0, 30000), lyrics: String(values.lyrics || "").slice(0, 20000), updatedAt: Date.now() });
+    const sheet = String(values.sheet || "").slice(0, 30000);
+    const generatedLyrics = generateLyricsFromChordSheet(sheet);
+    await updateDoc(doc(db, "teams", state.teamCode, "songs", song.id), { title: clean(values.title).slice(0, 120), artist: clean(values.artist).slice(0, 100), key: clean(values.key).slice(0, 10), bpm: Number(values.bpm) || 74, referenceUrl: clean(values.referenceUrl).slice(0, 1000), sheet, lyrics: generatedLyrics || song.lyrics || "", updatedAt: Date.now() });
   });
 }
 
@@ -854,8 +868,7 @@ async function addSong() {
     { name: "key", label: "Musical key", required: true, maxLength: 10, value: "C", placeholder: "C, D, F#…" },
     { name: "bpm", label: "Tempo (BPM)", type: "number", min: "1", step: "1", value: "74" },
     { name: "referenceUrl", label: "Audio or video link", type: "url", placeholder: "https://…" },
-    { name: "sheet", label: "Chord sheet", type: "textarea", maxLength: 30000, placeholder: "Paste chord chart or arrangement notes" },
-    { name: "lyrics", label: "Lyrics (optional)", type: "textarea", maxLength: 20000, placeholder: "Add lyrics or section cues" }
+    { name: "sheet", label: "Chord sheet", type: "textarea", maxLength: 30000, placeholder: "Paste chords and lyrics together. Singer lyrics will be generated automatically." }
   ], "Add to library", async (values) => {
     const id = await newDocumentId(collection(db, "teams", state.teamCode, "songs"));
     let referenceUrl = clean(values.referenceUrl || "");
@@ -869,7 +882,7 @@ async function addSong() {
       bpm: Number(values.bpm) || 74,
       referenceUrl: referenceUrl.slice(0, 1000),
       sheet: String(values.sheet || "").slice(0, 30000),
-      lyrics: String(values.lyrics || "").slice(0, 20000),
+      lyrics: generateLyricsFromChordSheet(String(values.sheet || "").slice(0, 30000)),
       createdBy: state.user.uid,
       createdAt: Date.now(),
       updatedAt: Date.now()
