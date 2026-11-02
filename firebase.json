@@ -3,13 +3,25 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": {
+    "source": "functions"
+  },
   "auth": {
     "providers": {
       "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "SyncedN",
+        "oAuthBrandDisplayName": "SyncedM",
         "supportEmail": "sarmientomark936@gmail.com"
       }
     }
+  },
+  "hosting": {
+    "public": "web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "**/README.md"
+    ]
   }
 }

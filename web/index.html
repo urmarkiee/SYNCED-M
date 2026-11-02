@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f8f8fc" />
+    <meta name="description" content="SyncedM — worship planning for your team." />
+    <title>SyncedM — Synced in Music</title>
+    <link rel="icon" href="./assets/syncedm-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="loading-screen" id="loading-screen">
+      <img src="./assets/syncedm-mark.svg" alt="" />
+      <span>Loading your workspace</span>
+    </div>
+
+    <main class="auth-shell is-hidden" id="auth-shell">
+      <section class="auth-art" aria-label="SyncedM worship planning">
+        <div class="auth-brand">
+          <img src="./assets/syncedm-mark.svg" alt="SyncedM logo" />
+          <div><strong>SyncedM</strong><span>SYNCED IN MUSIC</span></div>
+        </div>
+        <div class="auth-message">
+          <p class="eyebrow">WORSHIP, IN SYNC</p>
+          <h1>Plan the moments<br />that bring you together.</h1>
+          <p>One shared space for your services, songs, and team.</p>
+        </div>
+        <div class="auth-art-note">Made for the people behind the music.</div>
+      </section>
+      <section class="auth-panel">
+        <div class="auth-form-wrap">
+          <img class="auth-mobile-logo" src="./assets/syncedm-mark.svg" alt="SyncedM" />
+          <div id="auth-heading">
+            <p class="eyebrow">WELCOME BACK</p>
+            <h2 id="auth-title">Sign in to SyncedM</h2>
+            <p class="muted" id="auth-subtitle">Your team’s next service is waiting.</p>
+          </div>
+          <button class="button button-google" id="google-sign-in" type="button">
+            <span class="google-g" aria-hidden="true">G</span> Continue with Google
+          </button>
+          <div class="divider"><span>or continue with email</span></div>
+          <form id="sign-in-form" class="auth-form">
+            <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com" /></label>
+            <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="Enter your password" /></label>
+            <div class="form-between"><span></span><button class="link-button" type="button" id="forgot-password">Forgot password?</button></div>
+            <button class="button button-primary full-width" type="submit">Sign in</button>
+          </form>
+          <form id="register-form" class="auth-form is-hidden">
+            <label>Your name<input name="name" type="text" autocomplete="name" required maxlength="100" placeholder="Mark Sarmiento" /></label>
+            <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com" /></label>
+            <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="At least 6 characters" /></label>
+            <button class="button button-primary full-width" type="submit">Create account</button>
+          </form>
+          <p class="auth-switch" id="auth-switch">New to SyncedM? <button class="link-button" id="show-register" type="button">Create an account</button></p>
+          <p class="auth-error" id="auth-error" role="alert"></p>
+          <p class="auth-privacy">Your account is secured by Firebase Authentication.</p>
+        </div>
+      </section>
+    </main>
+
+    <main class="app-shell is-hidden" id="app-shell">
+      <aside class="sidebar">
+        <a class="brand-lockup" href="#home" aria-label="SyncedM home">
+          <img src="./assets/syncedm-mark.svg" alt="" />
+          <span><strong>SyncedM</strong><small>SYNCED IN MUSIC</small></span>
+        </a>
+        <div class="team-switcher" id="team-switcher">
+          <span class="team-icon">♫</span>
+          <span class="team-switcher-copy"><small>YOUR TEAM</small><strong id="team-name">Loading team…</strong></span>
+          <span class="team-chevron">⌄</span>
+        </div>
+        <nav class="primary-nav" aria-label="Main navigation">
+          <button class="nav-link active" data-view="home" type="button"><span class="nav-icon">⌂</span><span>Home</span></button>
+          <button class="nav-link" data-view="schedule" type="button"><span class="nav-icon">▦</span><span>Schedule</span><span class="nav-count" id="schedule-count">0</span></button>
+          <button class="nav-link" data-view="songs" type="button"><span class="nav-icon">♫</span><span>Songs</span></button>
+          <button class="nav-link" data-view="team" type="button"><span class="nav-icon">♧</span><span>Team</span></button>
+          <button class="nav-link" data-view="chat" type="button"><span class="nav-icon">☏</span><span>Chat</span></button>
+          <button class="nav-link" data-view="more" type="button"><span class="nav-icon">＋</span><span>More</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="sidebar-user" id="sidebar-user"></div>
+        </div>
+      </aside>
+
+      <section class="app-main">
+        <header class="topbar">
+          <div class="breadcrumb"><span>Workspace</span><span class="crumb-slash">/</span><strong id="topbar-current">Home</strong></div>
+          <div class="topbar-actions">
+            <div class="live-state"><span></span> Live sync</div>
+            <button class="avatar-button" id="profile-shortcut" type="button" aria-label="Open profile"></button>
+          </div>
+        </header>
+        <div class="mobile-brand"><img src="./assets/syncedm-mark.svg" alt="" /><strong>SyncedM</strong></div>
+        <section class="page-content">
+          <div class="page-heading">
+            <div><p class="eyebrow" id="page-kicker">YOUR WORSHIP TEAM</p><h1 id="page-title">Good to see you</h1><p class="muted" id="page-description">Here’s what’s happening with your team.</p></div>
+            <div class="page-heading-actions" id="page-actions"></div>
+          </div>
+          <div id="view-root" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+
+    <section class="onboarding-shell is-hidden" id="onboarding-shell">
+      <div class="onboarding-card">
+        <img src="./assets/syncedm-mark.svg" alt="SyncedM" />
+        <p class="eyebrow">LET’S GET IN SYNC</p>
+        <h1>Start with your team.</h1>
+        <p class="muted">Create a team for your worship ministry or join one with its six-character invite code. Your team’s data will sync with SyncedM on Android.</p>
+        <div class="onboarding-tabs"><button class="active" data-onboarding="join" type="button">Join a team</button><button data-onboarding="create" type="button">Create a team</button></div>
+        <form id="join-team-form" class="auth-form">
+          <label>Team invite code<input name="teamCode" required minlength="6" maxlength="6" autocomplete="off" placeholder="e.g. 3J486F" /></label>
+          <button class="button button-primary full-width" type="submit">Join team</button>
+        </form>
+        <form id="create-team-form" class="auth-form is-hidden">
+          <label>Team name<input name="teamName" required maxlength="100" placeholder="Grace Community Worship" /></label>
+          <button class="button button-primary full-width" type="submit">Create team</button>
+        </form>
+        <form id="rejoin-form" class="auth-form is-hidden"><p class="muted">Your previous team can review a request to restore your access.</p><label>Message to the leader (optional)<textarea name="reason" maxlength="500" placeholder="Add a note for your team leader"></textarea></label><button class="button button-primary" type="submit">Request to rejoin</button></form>
+        <p class="auth-error" id="onboarding-error" role="alert"></p>
+        <button class="link-button" id="onboarding-sign-out" type="button">Sign out</button>
+      </div>
+    </section>
+
+    <dialog class="modal" id="modal">
+      <form method="dialog" class="modal-close-form"><button class="icon-button" aria-label="Close" value="cancel">×</button></form>
+      <div id="modal-content"></div>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
