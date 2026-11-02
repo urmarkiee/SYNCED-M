@@ -54,6 +54,7 @@ const state = {
   selectedServiceId: "",
   songTranspose: 0,
   chordScrollTimer: null,
+  sheetScrollSpeed: 35,
   metronomeTimer: null,
   metronomeContext: null,
   notificationPrimed: new Set(),
@@ -278,6 +279,7 @@ function updateIdentity() {
   $("#profile-shortcut").innerHTML = avatar;
   $("#sidebar-user").innerHTML = `<div class="user-avatar">${avatar}</div><div class="sidebar-user-text"><strong>${escapeHtml(name)}</strong><span>${escapeHtml(state.profile?.ministryRole || state.profile?.role || "Team member")}</span></div>`;
   $("#schedule-count").textContent = String(state.services.length);
+  updateNotificationBadge();
 }
 
 function notifyNewFirestoreDocs(snapshot, feed, titleFor, bodyFor) {
@@ -291,6 +293,25 @@ function notifyNewFirestoreDocs(snapshot, feed, titleFor, bodyFor) {
     try { new Notification(titleFor(data), { body: bodyFor(data), icon: "./assets/syncedm-mark.svg", tag: `${feed}-${change.doc.id}` }); }
     catch (error) { console.warn("Browser notification could not be shown", error); }
   }
+}
+
+function getNotificationItems() {
+  return [
+    ...state.services.filter((item) => item.status === "Published").map((item) => ({ id: `service-${item.id}`, title: "Service scheduled", text: `${item.title} · ${dateLabel(item.date, { month: "short", day: "numeric" })}`, time: Number(item.updatedAt || item.createdAt) || 0, icon: "▦" })),
+    ...state.announcements.map((item) => ({ id: `announcement-${item.id}`, title: `${item.urgent ? "Urgent · " : ""}${item.title}`, text: item.message, time: Number(item.updatedAt || item.createdAt) || 0, icon: "•" })),
+    ...state.substitutions.map((item) => ({ id: `sub-${item.id}`, title: `${item.type === "Inclusion" ? "Offer" : "Substitution"} · ${item.status}`, text: `${item.requesterName} · ${item.serviceTitle}`, time: Number(item.updatedAt || item.createdAt) || 0, icon: "⇄" }))
+  ].sort((a, b) => b.time - a.time).slice(0, 50);
+}
+
+function updateNotificationBadge() {
+  const badge = $("#notification-count");
+  const button = $("#notifications-shortcut");
+  if (!badge || !button) return;
+  const hidden = new Set(JSON.parse(localStorage.getItem(`syncedm-dismissed-${state.user?.uid || ""}`) || "[]"));
+  const count = getNotificationItems().filter((item) => !hidden.has(item.id)).length;
+  badge.textContent = count > 9 ? "9+" : String(count);
+  badge.classList.toggle("is-hidden", count === 0);
+  button.setAttribute("aria-label", count ? `Notifications, ${count} updates` : "Notifications");
 }
 
 function startTeamListeners() {
@@ -316,6 +337,7 @@ function startTeamListeners() {
   listen(collection(db, "teams", code, "announcements"), (snapshot) => {
     notifyNewFirestoreDocs(snapshot, "announcements", (item) => item.urgent ? `Urgent: ${item.title || "Team announcement"}` : item.title || "Team announcement", (item) => item.message || "A new update was posted.");
     state.announcements = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((a, b) => (asDate(b.createdAt)?.getTime() || 0) - (asDate(a.createdAt)?.getTime() || 0));
+    updateNotificationBadge();
     if (["home", "team", "notifications"].includes(state.view)) renderView();
   }, "Announcements");
   listen(query(collection(db, "users"), where("teamCode", "==", code)), (snapshot) => {
@@ -330,6 +352,7 @@ function startTeamListeners() {
   listen(collection(db, "teams", code, "substitutions"), (snapshot) => {
     notifyNewFirestoreDocs(snapshot, "substitutions", (item) => item.type === "Inclusion" ? "New volunteer offer" : "Substitution request", (item) => `${item.requesterName || "A teammate"} · ${item.serviceTitle || "Service"}`);
     state.substitutions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((a, b) => (asDate(b.createdAt)?.getTime() || Number(b.createdAt) || 0) - (asDate(a.createdAt)?.getTime() || Number(a.createdAt) || 0));
+    updateNotificationBadge();
     if (["substitutions", "notifications"].includes(state.view)) renderView();
   }, "Substitution requests");
   if (state.isLeader) {
@@ -514,7 +537,7 @@ function renderSubstitutions() {
 
 function renderNotifications() {
   const hidden = new Set(JSON.parse(localStorage.getItem(`syncedm-dismissed-${state.user.uid}`) || "[]"));
-  const items = [...state.services.filter((item) => item.status === "Published").map((item) => ({ id: `service-${item.id}`, title: "Service scheduled", text: `${item.title} · ${dateLabel(item.date, { month: "short", day: "numeric" })}`, time: Number(item.updatedAt || item.createdAt) || 0, icon: "▦" })), ...state.announcements.map((item) => ({ id: `announcement-${item.id}`, title: `${item.urgent ? "Urgent · " : ""}${item.title}`, text: item.message, time: Number(item.updatedAt || item.createdAt) || 0, icon: "•" })), ...state.substitutions.map((item) => ({ id: `sub-${item.id}`, title: `${item.type === "Inclusion" ? "Offer" : "Substitution"} · ${item.status}`, text: `${item.requesterName} · ${item.serviceTitle}`, time: Number(item.updatedAt || item.createdAt) || 0, icon: "⇄" }))].filter((item) => !hidden.has(item.id)).sort((a, b) => b.time - a.time).slice(0, 50);
+  const items = getNotificationItems().filter((item) => !hidden.has(item.id));
   const browserAlerts = !("Notification" in window) ? "" : Notification.permission === "granted" ? `<span class="badge">Browser alerts on</span>` : `<button class="button button-quiet" data-action="enable-browser-alerts" type="button">Enable browser alerts</button>`;
   setPage("Notifications", "Recent services, announcements, and cover requests.", "TEAM UPDATES", `${browserAlerts}<button class="button button-quiet" data-action="clear-notifications" type="button">Clear list</button>`);
   $("#view-root").innerHTML = `<section class="panel"><div class="item-list">${items.map((item) => `<article class="notification-row"><span class="tool-card-icon">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.text)}</small><small>${escapeHtml(item.time ? dateLabel(item.time, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Recently")}</small></span><button class="icon-button" data-action="dismiss-notification" data-id="${escapeHtml(item.id)}" aria-label="Dismiss update" type="button">×</button></article>`).join("") || `<div class="empty-state"><strong>You’re all caught up</strong>New team updates will show up here.</div>`}</div></section>`;
@@ -708,14 +731,27 @@ function songReferenceMarkup(reference) {
   return `<a class="reference-link" href="${escapeHtml(reference)}" target="_blank" rel="noopener noreferrer">Open song reference ↗</a>`;
 }
 
+function songDisplayMode() {
+  const role = clean(state.profile?.ministryRole || "").toLowerCase();
+  if (/\b(vocalist|vocal|singer|singers|choir|chorus|voice)\b/.test(role)) return "lyrics";
+  if (/\b(guitar|guitarist|keyboard|keyboardist|piano|pianist|keys|bass|bassist|drum|drummer|percussion|instrumentalist|instrument|musician|organ|violin|cello|flute|sax|trumpet)\b/.test(role)) return "chords";
+  return "both";
+}
+
 function openSong(song) {
   const modal = $("#modal");
   state.songTranspose = 0;
+  state.sheetScrollSpeed = 35;
+  const displayMode = songDisplayMode();
   const reference = clean(song.referenceUrl || "");
   const safeReference = songReferenceMarkup(reference);
-  const sheet = song.sheet?.trim() ? `<div><div class="transpose-controls"><strong>Chord sheet</strong><span><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="song-key-label">Key ${escapeHtml(song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span></div><div class="sheet-actions"><button class="link-button" data-action="toggle-sheet-scroll" type="button">Start auto-scroll</button><button class="link-button" data-action="format-song-sheet" data-id="${escapeHtml(song.id)}" type="button">Format sections</button></div><pre id="song-sheet">${escapeHtml(formatChordSheet(song.sheet))}</pre></div>` : `<div class="sheet-empty"><strong>Chord sheet not added yet</strong><p>Ask your team leader to add the chart to this song in the shared song library.</p></div>`;
+  const sheet = song.sheet?.trim() ? `<div><div class="transpose-controls"><strong>Chord sheet</strong><span><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="song-key-label">Key ${escapeHtml(song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span></div><div class="sheet-actions"><button class="link-button" data-action="toggle-sheet-scroll" type="button">Start auto-scroll</button><button class="link-button" data-action="format-song-sheet" data-id="${escapeHtml(song.id)}" type="button">Format sections</button></div><label class="scroll-speed-control" for="sheet-scroll-speed"><span>Auto-scroll speed</span><input id="sheet-scroll-speed" type="range" min="10" max="100" step="5" value="35"><output id="sheet-scroll-speed-value">35 px/s</output></label><pre id="song-sheet">${escapeHtml(formatChordSheet(song.sheet))}</pre></div>` : `<div class="sheet-empty"><strong>Chord sheet not added yet</strong><p>Ask your team leader to add the chart to this song in the shared song library.</p></div>`;
+  const lyrics = song.lyrics?.trim() ? `<div class="song-lyrics"><strong>Lyrics</strong><p>${escapeHtml(song.lyrics)}</p></div>` : `<div class="sheet-empty"><strong>Lyrics not added yet</strong><p>Ask your team leader to add the lyrics to this song in the shared song library.</p></div>`;
   const metronome = Number(song.bpm) > 0 ? `<button class="button button-quiet" data-action="metronome" data-bpm="${Math.max(30, Math.min(240, Number(song.bpm)))}" type="button">▶ Start metronome · ${escapeHtml(song.bpm)} BPM</button>` : "";
-  $("#modal-content").innerHTML = `<p class="eyebrow">TEAM SONG</p><h2>${escapeHtml(song.title || "Untitled song")}</h2><p class="modal-intro">${escapeHtml(song.artist || "Team arrangement")} · ${escapeHtml(song.bpm || "—")} BPM</p><div class="modal-detail">${sheet}${song.lyrics ? `<div><strong>Lyrics</strong><p>${escapeHtml(song.lyrics)}</p></div>` : ""}${safeReference || `<p class="muted">No audio or video reference has been added.</p>`}${metronome}</div>${state.isLeader ? `<div class="modal-actions"><button class="button button-quiet" data-action="delete-song" data-id="${escapeHtml(song.id)}" type="button">Delete song</button><button class="button button-quiet" data-action="edit-song" data-id="${escapeHtml(song.id)}" type="button">Edit song</button><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>` : `<div class="modal-actions"><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`}`;
+  const roleView = displayMode === "lyrics" ? "VOCALIST VIEW" : displayMode === "chords" ? "INSTRUMENTALIST VIEW" : "TEAM SONG";
+  const detail = displayMode === "lyrics" ? lyrics : displayMode === "chords" ? `${sheet}${safeReference}${metronome}` : `${sheet}${lyrics}${safeReference || `<p class="muted">No audio or video reference has been added.</p>`}${metronome}`;
+  const intro = displayMode === "lyrics" ? escapeHtml(song.artist || "Team arrangement") : `${escapeHtml(song.artist || "Team arrangement")} · ${escapeHtml(song.bpm || "—")} BPM`;
+  $("#modal-content").innerHTML = `<p class="eyebrow">${roleView}</p><h2>${escapeHtml(song.title || "Untitled song")}</h2><p class="modal-intro">${intro}</p><div class="modal-detail">${detail}</div>${state.isLeader ? `<div class="modal-actions"><button class="button button-quiet" data-action="delete-song" data-id="${escapeHtml(song.id)}" type="button">Delete song</button><button class="button button-quiet" data-action="edit-song" data-id="${escapeHtml(song.id)}" type="button">Edit song</button><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>` : `<div class="modal-actions"><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`}`;
   modal.showModal();
 }
 
@@ -864,14 +900,19 @@ function editAnnouncement(announcement) {
   });
 }
 
-async function createTeam(teamName) {
+async function createTeam(teamName, requestedCode = "") {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const bytes = crypto.getRandomValues(new Uint8Array(6));
-    code = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
-    if (!(await getDoc(doc(db, "teams", code))).exists()) break;
-    code = "";
+  let code = clean(requestedCode).toUpperCase();
+  if (code && !/^[A-Z0-9]{6}$/.test(code)) throw new Error("Use exactly six letters or numbers for a custom invite code.");
+  if (code) {
+    if ((await getDoc(doc(db, "teams", code))).exists()) throw new Error("That invite code is already in use. Choose another one.");
+  } else {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const bytes = crypto.getRandomValues(new Uint8Array(6));
+      code = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+      if (!(await getDoc(doc(db, "teams", code))).exists()) break;
+      code = "";
+    }
   }
   if (!code) throw new Error("Could not find an available team code. Please try again.");
   const name = clean(teamName).slice(0, 100);
@@ -1011,11 +1052,16 @@ $("#create-team-form").addEventListener("submit", async (event) => {
   const button = $("button[type=submit]", event.currentTarget);
   setBusy(button, true, "Creating…");
   try {
-    await createTeam(new FormData(event.currentTarget).get("teamName"));
+    const form = new FormData(event.currentTarget);
+    await createTeam(form.get("teamName"), form.get("teamCode"));
   } catch (error) {
     errorNode.textContent = prettyError(error);
     setBusy(button, false);
   }
+});
+
+$("#create-team-form input[name=teamCode]").addEventListener("input", (event) => {
+  event.currentTarget.value = event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
 });
 
 $("#rejoin-form").addEventListener("submit", async (event) => {
@@ -1043,6 +1089,7 @@ $("#rejoin-form").addEventListener("submit", async (event) => {
 $("#onboarding-sign-out").addEventListener("click", () => signOut(auth));
 $("#team-switcher").addEventListener("click", () => { if (state.teamCode) { navigator.clipboard?.writeText(state.teamCode).then(() => toast(`Invite code copied: ${state.teamCode}`, "success")).catch(() => toast(`Invite code: ${state.teamCode}`)); } });
 $("#profile-shortcut").addEventListener("click", () => goTo("profile"));
+$("#notifications-shortcut").addEventListener("click", () => goTo("notifications"));
 
 $("#onboarding-shell").addEventListener("click", (event) => {
   const button = event.target.closest("[data-onboarding]");
@@ -1100,8 +1147,8 @@ document.addEventListener("click", async (event) => {
           if (!pre.isConnected || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 2) {
             clearInterval(state.chordScrollTimer); state.chordScrollTimer = null; action.textContent = "Start auto-scroll"; return;
           }
-          pre.scrollTop += 1;
-        }, 35);
+          pre.scrollTop += state.sheetScrollSpeed / 20;
+        }, 50);
       }
       break;
     }
@@ -1183,13 +1230,13 @@ document.addEventListener("click", async (event) => {
     }
     case "dismiss-notification": {
       const key = `syncedm-dismissed-${state.user.uid}`;
-      const ids = new Set(JSON.parse(localStorage.getItem(key) || "[]")); ids.add(action.dataset.id); localStorage.setItem(key, JSON.stringify([...ids])); renderView();
+      const ids = new Set(JSON.parse(localStorage.getItem(key) || "[]")); ids.add(action.dataset.id); localStorage.setItem(key, JSON.stringify([...ids])); updateNotificationBadge(); renderView();
       break;
     }
     case "clear-notifications": {
       const key = `syncedm-dismissed-${state.user.uid}`;
       const ids = [...state.services.map((item) => `service-${item.id}`), ...state.announcements.map((item) => `announcement-${item.id}`), ...state.substitutions.map((item) => `sub-${item.id}`)];
-      localStorage.setItem(key, JSON.stringify(ids)); renderView();
+      localStorage.setItem(key, JSON.stringify(ids)); updateNotificationBadge(); renderView();
       break;
     }
     case "enable-browser-alerts": {
@@ -1292,6 +1339,13 @@ $("#modal").addEventListener("close", () => {
 
 $("#modal").addEventListener("click", (event) => {
   if (event.target === $("#modal")) $("#modal").close();
+});
+
+document.addEventListener("input", (event) => {
+  if (event.target.id !== "sheet-scroll-speed") return;
+  state.sheetScrollSpeed = Number(event.target.value) || 35;
+  const output = $("#sheet-scroll-speed-value");
+  if (output) output.textContent = `${state.sheetScrollSpeed} px/s`;
 });
 
 const redirectResult = getRedirectResult(auth).then(() => null).catch((error) => error);

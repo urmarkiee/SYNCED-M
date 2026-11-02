@@ -47,7 +47,7 @@
             <button class="button button-primary full-width" type="submit">Sign in</button>
           </form>
           <form id="register-form" class="auth-form is-hidden">
-            <label>Your name<input name="name" type="text" autocomplete="name" required maxlength="100" placeholder="Mark Sarmiento" /></label>
+            <label>Full name<input name="name" type="text" autocomplete="name" required maxlength="100" placeholder="Enter your full name" /></label>
             <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com" /></label>
             <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="At least 6 characters" /></label>
             <button class="button button-primary full-width" type="submit">Create account</button>
@@ -88,6 +88,10 @@
           <div class="breadcrumb"><span>Workspace</span><span class="crumb-slash">/</span><strong id="topbar-current">Home</strong></div>
           <div class="topbar-actions">
             <div class="live-state"><span></span> Live sync</div>
+            <button class="notification-shortcut" id="notifications-shortcut" type="button" aria-label="Notifications" title="Notifications">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+              <span class="notification-count is-hidden" id="notification-count">0</span>
+            </button>
             <button class="avatar-button" id="profile-shortcut" type="button" aria-label="Open profile"></button>
           </div>
         </header>
@@ -107,14 +111,15 @@
         <img src="./assets/syncedm-mark.svg" alt="SyncedM" />
         <p class="eyebrow">LET’S GET IN SYNC</p>
         <h1>Start with your team.</h1>
-        <p class="muted">Create a team for your worship ministry or join one with its six-character invite code. Your team’s data will sync with SyncedM on Android.</p>
+        <p class="muted">Create a team with a name and optional custom invite code, or join with a teammate’s six-character code. Your team’s data will sync with SyncedM on Android.</p>
         <div class="onboarding-tabs"><button class="active" data-onboarding="join" type="button">Join a team</button><button data-onboarding="create" type="button">Create a team</button></div>
         <form id="join-team-form" class="auth-form">
           <label>Team invite code<input name="teamCode" required minlength="6" maxlength="6" autocomplete="off" placeholder="e.g. 3J486F" /></label>
           <button class="button button-primary full-width" type="submit">Join team</button>
         </form>
         <form id="create-team-form" class="auth-form is-hidden">
-          <label>Team name<input name="teamName" required maxlength="100" placeholder="Grace Community Worship" /></label>
+          <label>Team name<input name="teamName" required maxlength="100" placeholder="e.g. Grace Community Worship" /></label>
+          <label>Custom invite code (optional)<input name="teamCode" type="text" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" autocomplete="off" autocapitalize="characters" placeholder="Leave blank to generate one" /><small class="muted">Use six letters or numbers. Leave blank for an automatically generated code.</small></label>
           <button class="button button-primary full-width" type="submit">Create team</button>
         </form>
         <form id="rejoin-form" class="auth-form is-hidden"><p class="muted">Your previous team can review a request to restore your access.</p><label>Message to the leader (optional)<textarea name="reason" maxlength="500" placeholder="Add a note for your team leader"></textarea></label><button class="button button-primary" type="submit">Request to rejoin</button></form>
