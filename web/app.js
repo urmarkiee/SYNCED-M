@@ -2,11 +2,13 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebas
 import {
   createUserWithEmailAndPassword,
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
@@ -31,6 +33,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+const isIOSBrowser = /iPad|iPhone|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 const state = {
   user: null,
@@ -962,6 +965,10 @@ $("#google-sign-in").addEventListener("click", async (event) => {
   setAuthMessage("");
   setBusy(event.currentTarget, true, "Opening Google…");
   try {
+    if (isIOSBrowser && location.hostname === "synedn.web.app") {
+      await signInWithRedirect(auth, googleProvider);
+      return;
+    }
     await signInWithPopup(auth, googleProvider);
   } catch (error) {
     setAuthMessage(prettyError(error));
@@ -1287,12 +1294,16 @@ $("#modal").addEventListener("click", (event) => {
   if (event.target === $("#modal")) $("#modal").close();
 });
 
+const redirectResult = getRedirectResult(auth).then(() => null).catch((error) => error);
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     state.user = null;
     state.profile = null;
     stopTeamListeners();
     showAuth();
+    const redirectError = await redirectResult;
+    if (redirectError && !auth.currentUser) setAuthMessage(prettyError(redirectError));
     return;
   }
   await initializeSignedInWorkspace(user);

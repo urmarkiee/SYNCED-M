@@ -2,7 +2,7 @@
 // Firestore Security Rules and Firebase Auth protect user data.
 export const firebaseConfig = {
   apiKey: "AIzaSyC6fX9Y78xAbArNcw9_J5Nz8qb9cWJxLIE",
-  authDomain: "synedn.firebaseapp.com",
+  authDomain: "synedn.web.app",
   projectId: "synedn",
   storageBucket: "synedn.firebasestorage.app",
   messagingSenderId: "811884997432",
