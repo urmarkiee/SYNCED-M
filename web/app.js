@@ -496,7 +496,8 @@ function renderLineups() {
     const key = typeof item === "string" ? catalogSong?.key || "" : item.key || catalogSong?.key || "";
     const artist = typeof item === "string" ? catalogSong?.artist || "" : item.artist || catalogSong?.artist || "";
     const bpm = typeof item === "string" ? catalogSong?.bpm || "" : item.bpm || catalogSong?.bpm || "";
-    return `<article class="lineup-song"><span class="lineup-number">${index + 1}</span><span class="lineup-song-copy"><strong>${escapeHtml(title)}</strong><small>${escapeHtml([artist, bpm ? `${bpm} BPM` : ""].filter(Boolean).join(" · ") || "Team arrangement")}</small></span>${key ? `<span class="item-pill key">Key ${escapeHtml(key)}</span>` : ""}${catalogSong ? `<button class="button button-quiet lineup-chart-button" data-action="open-song" data-id="${escapeHtml(catalogSong.id)}" type="button">${catalogSong.sheet?.trim() ? "View chord sheet" : "Song details"}</button>` : `<span class="lineup-no-chart">Not in shared song library</span>`}</article>`;
+    const songActionLabel = songDisplayMode() === "lyrics" ? "View lyrics" : catalogSong?.sheet?.trim() ? "View chord sheet" : "Song details";
+    return `<article class="lineup-song"><span class="lineup-number">${index + 1}</span><span class="lineup-song-copy"><strong>${escapeHtml(title)}</strong><small>${escapeHtml([artist, bpm ? `${bpm} BPM` : ""].filter(Boolean).join(" · ") || "Team arrangement")}</small></span>${key ? `<span class="item-pill key">Key ${escapeHtml(key)}</span>` : ""}${catalogSong ? `<button class="button button-quiet lineup-chart-button" data-action="open-song" data-id="${escapeHtml(catalogSong.id)}" type="button">${songActionLabel}</button>` : `<span class="lineup-no-chart">Not in shared song library</span>`}</article>`;
   }).join("");
   const assignments = service.assignments || [];
   setPage(service.title || "Service lineup", `${dateLabel(service.date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${service.start ? timeLabel(service.start) : "Time TBD"} · ${service.venue || "Location to be announced"}`, "SERVICE LINEUP", `<button class="button button-quiet" data-action="back-lineups" type="button">All lineups</button>${state.isLeader ? `<button class="button button-primary" data-action="edit-service" data-id="${escapeHtml(service.id)}" type="button">Edit plan</button>` : ""}`);
@@ -733,7 +734,7 @@ function songReferenceMarkup(reference) {
 
 function songDisplayMode() {
   const role = clean(state.profile?.ministryRole || "").toLowerCase();
-  if (/\b(vocalist|vocal|singer|singers|choir|chorus|voice)\b/.test(role)) return "lyrics";
+  if (/\b(vocal(?:ist|s)?|singer|singing|choir|chorus|voice)\b/.test(role)) return "lyrics";
   if (/\b(guitar|guitarist|keyboard|keyboardist|piano|pianist|keys|bass|bassist|drum|drummer|percussion|instrumentalist|instrument|musician|organ|violin|cello|flute|sax|trumpet)\b/.test(role)) return "chords";
   return "both";
 }
