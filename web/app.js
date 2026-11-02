@@ -733,9 +733,17 @@ function songReferenceMarkup(reference) {
 }
 
 function songDisplayMode() {
-  const role = clean(state.profile?.ministryRole || "").toLowerCase();
-  if (/\b(vocal(?:ist|s)?|singer|singing|choir|chorus|voice)\b/.test(role)) return "lyrics";
-  if (/\b(guitar|guitarist|keyboard|keyboardist|piano|pianist|keys|bass|bassist|drum|drummer|percussion|instrumentalist|instrument|musician|organ|violin|cello|flute|sax|trumpet)\b/.test(role)) return "chords";
+  const service = state.services.find((item) => item.id === state.selectedServiceId);
+  const fullName = clean(state.profile?.fullName || state.profile?.username).toLowerCase();
+  const assignment = (service?.assignments || []).find((item) => item.uid === state.user?.uid || (item.name && clean(item.name).toLowerCase() === fullName));
+  const assignedRole = clean(assignment?.role).toLowerCase();
+  const profileRole = clean(state.profile?.ministryRole || state.profile?.role).toLowerCase();
+  const isVocal = (role) => /\b(vocal\w*|sing\w*|choir|chorus|voice)\b/i.test(role);
+  const isInstrumental = (role) => /\b(guitar\w*|keyboard\w*|piano\w*|keys|bass\w*|drum\w*|percussion|instrumentalist|instrument|musician|organ|violin|cello|flute|sax\w*|trumpet)\b/i.test(role);
+  if (isVocal(assignedRole)) return "lyrics";
+  if (isInstrumental(assignedRole)) return "chords";
+  if (isVocal(profileRole)) return "lyrics";
+  if (isInstrumental(profileRole)) return "chords";
   return "both";
 }
 
