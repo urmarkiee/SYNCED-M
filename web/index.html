@@ -6,19 +6,19 @@
     <meta name="theme-color" content="#f8f8fc" />
     <meta name="description" content="SyncedM — worship planning for your team." />
     <title>SyncedM — Synced in Music</title>
-    <link rel="icon" href="./assets/syncedm-mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="./assets/syncedm-brand-mark-padded.png" type="image/png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="loading-screen" id="loading-screen">
-      <img src="./assets/syncedm-mark.svg" alt="" />
+      <img src="./assets/syncedm-brand-mark-padded.png" alt="" />
       <span>Loading your workspace</span>
     </div>
 
     <main class="auth-shell is-hidden" id="auth-shell">
       <section class="auth-art" aria-label="SyncedM worship planning">
         <div class="auth-brand">
-          <img src="./assets/syncedm-mark.svg" alt="SyncedM logo" />
+          <img src="./assets/syncedm-brand-mark-padded.png" alt="SyncedM logo" />
           <div><strong>SyncedM</strong><span>SYNCED IN MUSIC</span></div>
         </div>
         <div class="auth-message">
@@ -30,7 +30,7 @@
       </section>
       <section class="auth-panel">
         <div class="auth-form-wrap">
-          <img class="auth-mobile-logo" src="./assets/syncedm-mark.svg" alt="SyncedM" />
+          <img class="auth-mobile-logo" src="./assets/syncedm-brand-mark-padded.png" alt="SyncedM" />
           <div id="auth-heading">
             <p class="eyebrow">WELCOME BACK</p>
             <h2 id="auth-title">Sign in to SyncedM</h2>
@@ -47,7 +47,7 @@
             <button class="button button-primary full-width" type="submit">Sign in</button>
           </form>
           <form id="register-form" class="auth-form is-hidden">
-            <label>Full name<input name="name" type="text" autocomplete="name" required maxlength="100" placeholder="Enter your full name" /></label>
+            <label>Username<input name="username" type="text" autocomplete="nickname" required maxlength="50" placeholder="Choose a username" /></label>
             <label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@example.com" /></label>
             <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="At least 6 characters" /></label>
             <button class="button button-primary full-width" type="submit">Create account</button>
@@ -55,6 +55,7 @@
           <p class="auth-switch" id="auth-switch">New to SyncedM? <button class="link-button" id="show-register" type="button">Create an account</button></p>
           <p class="auth-error" id="auth-error" role="alert"></p>
           <p class="auth-privacy">Your account is secured by Firebase Authentication.</p>
+          <p class="auth-privacy"><a href="./download.html">Get the Android app</a></p>
         </div>
       </section>
     </main>
@@ -62,7 +63,7 @@
     <main class="app-shell is-hidden" id="app-shell">
       <aside class="sidebar">
         <a class="brand-lockup" href="#home" aria-label="SyncedM home">
-          <img src="./assets/syncedm-mark.svg" alt="" />
+          <img src="./assets/syncedm-brand-mark-padded.png" alt="" />
           <span><strong>SyncedM</strong><small>SYNCED IN MUSIC</small></span>
         </a>
         <div class="team-switcher" id="team-switcher">
@@ -95,7 +96,7 @@
             <button class="avatar-button" id="profile-shortcut" type="button" aria-label="Open profile"></button>
           </div>
         </header>
-        <div class="mobile-brand"><img src="./assets/syncedm-mark.svg" alt="" /><strong>SyncedM</strong></div>
+        <div class="mobile-brand"><img src="./assets/syncedm-brand-mark-padded.png" alt="" /><strong>SyncedM</strong></div>
         <section class="page-content">
           <div class="page-heading">
             <div><p class="eyebrow" id="page-kicker">YOUR WORSHIP TEAM</p><h1 id="page-title">Good to see you</h1><p class="muted" id="page-description">Here’s what’s happening with your team.</p></div>
@@ -108,7 +109,7 @@
 
     <section class="onboarding-shell is-hidden" id="onboarding-shell">
       <div class="onboarding-card">
-        <img src="./assets/syncedm-mark.svg" alt="SyncedM" />
+        <img src="./assets/syncedm-brand-mark-padded.png" alt="SyncedM" />
         <p class="eyebrow">LET’S GET IN SYNC</p>
         <h1>Start with your team.</h1>
         <p class="muted">Create a team with a name and optional custom invite code, or join with a teammate’s six-character code. Your team’s data will sync with SyncedM on Android.</p>
@@ -122,7 +123,7 @@
           <label>Custom invite code (optional)<input name="teamCode" type="text" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" autocomplete="off" autocapitalize="characters" placeholder="Leave blank to generate one" /><small class="muted">Use six letters or numbers. Leave blank for an automatically generated code.</small></label>
           <button class="button button-primary full-width" type="submit">Create team</button>
         </form>
-        <form id="rejoin-form" class="auth-form is-hidden"><p class="muted">Your previous team can review a request to restore your access.</p><label>Message to the leader (optional)<textarea name="reason" maxlength="500" placeholder="Add a note for your team leader"></textarea></label><button class="button button-primary" type="submit">Request to rejoin</button></form>
+        <form id="rejoin-form" class="auth-form is-hidden"><p class="muted">Your previous team can review a request to restore your access.</p><label id="rejoin-team-code-field">Previous team invite code<input name="teamCode" type="text" minlength="6" maxlength="6" pattern="[A-Za-z0-9]{6}" autocomplete="off" autocapitalize="characters" placeholder="Enter the six-character code" /></label><label>Message to the leader (optional)<textarea name="reason" maxlength="500" placeholder="Add a note for your team leader"></textarea></label><button class="button button-primary" type="submit">Request to rejoin</button></form>
         <p class="auth-error" id="onboarding-error" role="alert"></p>
         <button class="link-button" id="onboarding-sign-out" type="button">Sign out</button>
       </div>
@@ -133,6 +134,6 @@
       <div id="modal-content"></div>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./app.js?v=2026-11-03-team-boundary"></script>
+    <script type="module" src="./app.js?v=2026-11-03-icon-padding"></script>
   </body>
 </html>

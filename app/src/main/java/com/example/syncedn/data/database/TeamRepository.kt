@@ -3532,6 +3532,16 @@ object TeamRepository {
                 for (doc in snapshot.documents) {
                     val data = doc.data ?: continue
                     var srv = ServiceData.fromMap(data).copy(id = doc.id)
+                    if (isLeader) {
+                        val derived = srv.toMap()
+                        val assignedUids = derived["assignedMemberUids"] as? List<*> ?: emptyList<Any>()
+                        val controllerUids = derived["liveControllerUids"] as? List<*> ?: emptyList<Any>()
+                        if (data["assignedMemberUids"] != assignedUids || data["liveControllerUids"] != controllerUids) {
+                            try {
+                                doc.reference.update(mapOf("assignedMemberUids" to assignedUids, "liveControllerUids" to controllerUids))
+                            } catch (_: Throwable) {}
+                        }
+                    }
                     if (srv.coverImageUrl.isBlank()) {
                         val fallbackCover = resolveFallbackCoverImageUrl(code, srv.id, srv.title, preferences)
                         if (fallbackCover.isNotBlank()) {

@@ -194,12 +194,25 @@ service cloud.firestore {
     // Application-Specific Authorization Helpers
     // ===============================================================
 
-    // Check if the authenticated user is the designated Leader of a given team
+    // The team owner and members explicitly promoted to role="Leader" may
+    // manage the team. A promoted role is read from the protected user profile;
+    // users cannot grant or change their own role through isValidOwnerUserUpdate.
     function isLeaderOfTeam(teamCode) {
-      return isAuthenticated() && teamCode != null && teamCode != '' && (
-        (exists(/databases/$(database)/documents/teams/$(teamCode)) &&
-         get(/databases/$(database)/documents/teams/$(teamCode)).data.leaderUid == request.auth.uid)
-      );
+      return isAuthenticated() && teamCode != null && teamCode != '' &&
+        exists(/databases/$(database)/documents/teams/$(teamCode)) && (
+          get(/databases/$(database)/documents/teams/$(teamCode)).data.leaderUid == request.auth.uid ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teamCode == teamCode &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Leader' &&
+           (!('removedByLeader' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedByLeader == false))
+        );
+    }
+
+    function isPrimaryLeaderOfTeam(teamCode) {
+      return isAuthenticated() && teamCode != null && teamCode != '' &&
+        exists(/databases/$(database)/documents/teams/$(teamCode)) &&
+        get(/databases/$(database)/documents/teams/$(teamCode)).data.leaderUid == request.auth.uid;
     }
 
     // Check if the authenticated user belongs to the same team
@@ -212,6 +225,53 @@ service cloud.firestore {
          (!('removedByLeader' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedByLeader == false))
       );
+    }
+
+    function hasServiceAssignment(teamCode, serviceId) {
+      return isSameTeam(teamCode) &&
+        exists(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)) &&
+        get(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)).data.get('assignedMemberUids', []) is list &&
+        request.auth.uid in get(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)).data.get('assignedMemberUids', []);
+    }
+
+    function canControlLiveSession(teamCode, serviceId) {
+      return hasServiceAssignment(teamCode, serviceId) &&
+        get(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)).data.get('liveControllerUids', []) is list &&
+        request.auth.uid in get(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)).data.get('liveControllerUids', []);
+    }
+
+    function isValidLiveSession(data, teamCode, serviceId) {
+      return data.keys().hasOnly([
+          'teamCode', 'serviceId', 'active', 'songId', 'songTitle',
+          'controllerUid', 'controllerName', 'controllerPlatform', 'key', 'scrollRatio',
+          'scrolling', 'scrollSpeed', 'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'teamCode', 'serviceId', 'active', 'songId', 'songTitle',
+          'controllerUid', 'controllerName', 'key', 'scrollRatio',
+          'scrolling', 'scrollSpeed', 'updatedAt'
+        ]) &&
+        data.teamCode == teamCode && data.serviceId == serviceId &&
+        data.active is bool && data.songId is string && data.songId.size() <= 128 &&
+        data.songTitle is string && data.songTitle.size() <= 120 &&
+        data.controllerUid is string && data.controllerUid.size() <= 128 &&
+        data.controllerName is string && data.controllerName.size() <= 100 &&
+        data.get('controllerPlatform', 'android') in ['android', 'web'] &&
+        data.key is string && data.key.size() <= 10 &&
+        data.scrollRatio is number && data.scrollRatio >= 0 && data.scrollRatio <= 1 &&
+        data.scrolling is bool && data.scrollSpeed is number &&
+        data.scrollSpeed >= 10 && data.scrollSpeed <= 100 &&
+        data.updatedAt is number;
+    }
+
+    // Permit the owner of a profile with an orphaned teamCode to read only the
+    // missing team document result. This reveals no team data, but lets clients
+    // detect a stale link and route the owner back to team setup.
+    function ownsOrphanedTeamLink(teamCode) {
+      return isAuthenticated() && teamCode is string && teamCode != '' &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.teamCode == teamCode &&
+        !exists(teamPath(teamCode));
     }
 
     function isRemovedFromTeam(teamCode) {
@@ -254,6 +314,20 @@ service cloud.firestore {
         changed.hasOnly(['teamCode', 'teamName', 'role', 'removedByLeader', 'removedTeamCode', 'joinedAt']);
     }
 
+    function isValidSelfLeaveUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let oldTeam = resource.data.teamCode;
+      return isOwner(userId) && oldTeam is string && oldTeam != '' &&
+        !isPrimaryLeaderOfTeam(oldTeam) &&
+        request.resource.data.teamCode == '' &&
+        request.resource.data.teamName == '' &&
+        request.resource.data.role == 'Member' &&
+        (!('ministryRole' in request.resource.data) || request.resource.data.ministryRole == '') &&
+        (!('removedByLeader' in request.resource.data) || request.resource.data.removedByLeader == false) &&
+        (!('removedTeamCode' in request.resource.data) || request.resource.data.removedTeamCode == '') &&
+        changed.hasOnly(['teamCode', 'teamName', 'ministryRole', 'role', 'removedByLeader', 'removedTeamCode']);
+    }
+
     function isOwnTeamNameRefresh(userId) {
       let code = request.resource.data.teamCode;
       let changed = request.resource.data.diff(resource.data).affectedKeys();
@@ -267,11 +341,12 @@ service cloud.firestore {
       let membershipFields = ['role', 'teamName', 'teamCode', 'removedByLeader', 'removedTeamCode', 'joinedAt'];
       return isOwner(userId) && isValidUser(request.resource.data, userId) &&
         areImmutableFieldsUnchanged(['uid', 'createdAt', 'email']) &&
-        (!changed.hasAny(membershipFields) || isValidSelfJoinUpdate(userId) ||
+        (!changed.hasAny(membershipFields) || isValidSelfJoinUpdate(userId) || isValidSelfLeaveUpdate(userId) ||
           isOwnTeamNameRefresh(userId) || isLeaderOfTeam(resource.data.teamCode) ||
           isLeaderOfTeam(request.resource.data.teamCode)) &&
         (!changed.hasAny(['role', 'removedByLeader', 'removedTeamCode']) ||
           ((!('role' in resource.data) || resource.data.role == '') && request.resource.data.role == 'Member') ||
+          isValidSelfLeaveUpdate(userId) ||
           isLeaderOfTeam(resource.data.teamCode) || isLeaderOfTeam(request.resource.data.teamCode));
     }
 
@@ -367,7 +442,7 @@ service cloud.firestore {
     function isValidService(data, serviceId, teamCode) {
       return hasOnlyAllowedFields(data, [
         'id', 'teamCode', 'title', 'date', 'start', 'end', 'venue',
-        'status', 'coverImageUrl', 'assignments', 'rehearsal', 'songs', 'createdBy',
+        'status', 'coverImageUrl', 'assignments', 'assignedMemberUids', 'liveControllerUids', 'rehearsal', 'songs', 'createdBy',
         'createdAt', 'updatedAt'
       ]) &&
       hasRequiredFields(data, ['id', 'teamCode', 'title', 'date', 'start', 'end', 'venue', 'status', 'createdBy']) &&
@@ -381,6 +456,8 @@ service cloud.firestore {
       data.status is string && data.status in ['Draft', 'Published'] &&
       (!('coverImageUrl' in data) || (data.coverImageUrl is string && data.coverImageUrl.size() <= 1000)) &&
       (!('assignments' in data) || (data.assignments is list && data.assignments.size() <= 50)) &&
+      (!('assignedMemberUids' in data) || (data.assignedMemberUids is list && data.assignedMemberUids.size() <= 50)) &&
+      (!('liveControllerUids' in data) || (data.liveControllerUids is list && data.liveControllerUids.size() <= 50 && data.liveControllerUids.hasOnly(data.get('assignedMemberUids', [])))) &&
       (!('rehearsal' in data) || data.rehearsal is map) &&
       (!('songs' in data) || (data.songs is list && data.songs.size() <= 50)) &&
       data.createdBy is string && data.createdBy.size() > 0 &&
@@ -541,7 +618,7 @@ service cloud.firestore {
       // Team metadata is visible only after membership has been established.
       // Joining clients submit the invite code on their own profile; these rules
       // verify that the team exists before granting membership.
-      allow get: if isSameTeam(teamCode);
+      allow get: if isSameTeam(teamCode) || ownsOrphanedTeamLink(teamCode);
       allow list: if false;
       allow create: if isAuthenticated() &&
         isValidTeam(request.resource.data, teamCode) &&
@@ -560,6 +637,21 @@ service cloud.firestore {
           isValidService(request.resource.data, serviceId, teamCode) &&
           areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']);
         allow delete: if isLeaderOfTeam(teamCode);
+      }
+
+      match /live_sessions/{serviceId} {
+        // Only users assigned to this service can see or follow its live state.
+        allow read: if hasServiceAssignment(teamCode, serviceId);
+        allow create: if canControlLiveSession(teamCode, serviceId) &&
+          isValidLiveSession(request.resource.data, teamCode, serviceId) &&
+          request.resource.data.controllerUid == request.auth.uid &&
+          exists(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId));
+        allow update: if canControlLiveSession(teamCode, serviceId) &&
+          isValidLiveSession(request.resource.data, teamCode, serviceId) &&
+          exists(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)) &&
+          resource.data.controllerUid == request.auth.uid;
+        allow delete: if canControlLiveSession(teamCode, serviceId) &&
+          resource.data.controllerUid == request.auth.uid;
       }
 
       match /songs/{songId} {

@@ -28,6 +28,7 @@ internal class SheetAutoScrollControls(
     private var speed = SheetScrollClock.clampSpeed(preferences.getInt(speedKey, 3))
     private val clock = SheetScrollClock()
     private var running = false
+    private var liveSyncActive = false
     private var closed = false
     private var lastFrame = 0L
     private val sheetLocation = IntArray(2)
@@ -147,13 +148,16 @@ internal class SheetAutoScrollControls(
 
     private fun maximumOffset(scroll: StableScrollView): Int {
         val visibleHeight = (scroll.height - scroll.paddingBottom).coerceAtLeast(1)
-        val contentBottom = scroll.getChildAt(0)?.bottom ?: 0
-        return (contentBottom - visibleHeight).coerceAtLeast(0)
+        val contentMaximum = ((scroll.getChildAt(0)?.bottom ?: 0) - visibleHeight).coerceAtLeast(0)
+        val top = sheetTop(scroll)
+        val sheetBottom = top + sheet.height
+        val reachableSheetTop = top.coerceAtMost(contentMaximum)
+        return (sheetBottom - visibleHeight).coerceAtMost(contentMaximum).coerceAtLeast(reachableSheetTop)
     }
 
     private fun start() {
         val scroll = viewport ?: return
-        if (closed || !isAttachedToWindow) return
+        if (closed || liveSyncActive || !isAttachedToWindow) return
         if (sheet.height == 0 || scroll.height == 0) {
             status.text = "Sheet is still loading"
             return
@@ -162,13 +166,22 @@ internal class SheetAutoScrollControls(
         scroll.fling(0)
         val top = sheetTop(scroll)
         val maximum = maximumOffset(scroll)
-        val start = if (scroll.scrollY >= maximum - dp(8)) 0 else scroll.scrollY
+        val sheetStart = top.coerceAtMost(maximum)
+        val start = if (scroll.scrollY >= maximum - dp(8)) sheetStart else scroll.scrollY.coerceIn(sheetStart, maximum)
         scroll.scrollTo(0, start)
-        if (maximum <= 0) { pause("Entire sheet is visible"); return }
+        if (maximum <= start) { pause("Entire sheet is visible"); return }
         clock.reset(start); lastFrame = SystemClock.uptimeMillis()
         running = true; keepScreenOn = true
         toggle.text = "Pause"; status.text = "Scrolling"
         removeCallbacks(frame); postOnAnimation(frame)
+    }
+
+    fun setLiveSyncActive(active: Boolean) {
+        liveSyncActive = active
+        toggle.isEnabled = !active
+        toggle.alpha = if (active) 0.45f else 1f
+        if (active) pause("Live sync uses manual scrolling")
+        else if (!running) status.text = "Ready"
     }
 
     fun pause(message: String = "Paused") {

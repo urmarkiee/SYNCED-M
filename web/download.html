@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#111333" />
+    <meta name="description" content="Download SyncedM for Android or open the SyncedM web app." />
+    <title>Get SyncedM — Synced in Music</title>
+    <link rel="icon" href="./assets/syncedm-brand-mark-padded.png" type="image/png" />
+    <style>
+      :root{color-scheme:dark;--ink:#f7f6ff;--muted:#c1bfd8;--purple:#8059e8;--line:rgba(255,255,255,.14);font-family:Inter,"Segoe UI",system-ui,sans-serif}
+      *{box-sizing:border-box}
+      body{margin:0;min-height:100vh;min-height:100dvh;background:radial-gradient(ellipse at 15% 8%,rgba(50,180,222,.19),transparent 34%),radial-gradient(ellipse at 88% 88%,rgba(128,89,232,.2),transparent 38%),linear-gradient(145deg,#101333,#17133d 60%,#21164d);color:var(--ink);display:grid;place-items:center;padding:28px}
+      main{width:min(100%,760px)}
+      .brand{display:flex;align-items:center;gap:14px;margin-bottom:42px}
+      .brand img{width:58px;height:58px;border-radius:17px;object-fit:cover;background:#fff;padding:3px}
+      .brand strong{display:block;font-size:21px;letter-spacing:-.04em}
+      .brand span{display:block;margin-top:4px;color:#c3b8fa;font-size:10px;font-weight:700;letter-spacing:.21em}
+      .card{padding:clamp(27px,6vw,54px);border:1px solid var(--line);border-radius:28px;background:rgba(255,255,255,.07);box-shadow:0 28px 90px rgba(0,0,0,.22);backdrop-filter:blur(16px)}
+      .eyebrow{margin:0 0 14px;color:#bcaaff;font-size:11px;font-weight:800;letter-spacing:.19em}
+      h1{max-width:610px;margin:0;font-size:clamp(36px,7vw,61px);line-height:1.02;letter-spacing:-.065em}
+      .intro{max-width:540px;margin:18px 0 30px;color:var(--muted);font-size:16px;line-height:1.65}
+      .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .button{min-height:58px;padding:13px 18px;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid transparent;border-radius:15px;text-align:center;text-decoration:none;font-size:14px;font-weight:800;transition:transform .15s,background .15s}
+      .button:hover{transform:translateY(-2px)}
+      .primary{background:var(--purple);color:#fff;box-shadow:0 12px 26px rgba(103,72,201,.28)}
+      .primary:hover{background:#906ff0}
+      .secondary{border-color:var(--line);background:rgba(255,255,255,.08);color:#fff}
+      .secondary:hover{background:rgba(255,255,255,.14)}
+      .details{display:flex;flex-wrap:wrap;gap:9px 18px;margin:20px 0 0;color:#d0cee0;font-size:12px}
+      .details span:before{content:"•";margin-right:7px;color:#70dff0}
+      .note{margin:30px 0 0;padding-top:21px;border-top:1px solid var(--line);color:#b9b7cd;font-size:12px;line-height:1.6}
+      .note a{color:#d5caff}
+      @media(max-width:560px){body{padding:19px}.brand{margin-bottom:27px}.card{border-radius:22px}.actions{grid-template-columns:1fr}.button{min-height:54px}.intro{font-size:14px}}
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="./assets/syncedm-brand-mark-padded.png" alt="" />
+        <div><strong>SyncedM</strong><span>SYNCED IN MUSIC</span></div>
+      </div>
+      <section class="card" aria-labelledby="page-title">
+        <p class="eyebrow">WORSHIP, IN SYNC</p>
+        <h1 id="page-title">Your team, ready for every service.</h1>
+        <p class="intro">Plan services, share songs and chord sheets, message your team, and stay together with live song sync.</p>
+        <div class="actions">
+          <a class="button primary" href="./downloads/SyncedM-1.0-Android.zip" download>
+            <span aria-hidden="true">↓</span> Download Android app (.zip)
+          </a>
+          <a class="button secondary" href="./" target="_blank" rel="noopener">
+            Open the web app <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+        <div class="details"><span>Android 7.0 or later</span><span>APK in a ZIP file</span><span>Version 1.0</span></div>
+        <p class="note">Download the ZIP, extract it, then open the SyncedM APK and allow your browser or file manager to install apps when Android asks. You can also use SyncedM in your browser with the web app button above. <a href="./">Already have an account? Sign in on the web.</a></p>
+      </section>
+    </main>
+  </body>
+</html>

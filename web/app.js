@@ -53,6 +53,14 @@ const state = {
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   selectedServiceId: "",
   songTranspose: 0,
+  liveSession: null,
+  liveSessionRef: null,
+  liveSessionUnsubscribe: null,
+  livePanelSignature: "",
+  liveSongId: "",
+  liveController: false,
+  liveApplyingRemote: false,
+  liveScrollWriteTimer: null,
   chordScrollTimer: null,
   sheetScrollSpeed: 35,
   metronomeTimer: null,
@@ -60,6 +68,7 @@ const state = {
   notificationPrimed: new Set(),
   listeners: []
 };
+let membershipSyncInProgress = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -72,7 +81,14 @@ const asDate = (value) => {
   const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
-const displayName = () => state.profile?.fullName || state.profile?.username || state.user?.displayName || state.user?.email?.split("@")[0] || "Worship team";
+const displayName = () => state.profile?.username || state.profile?.fullName || state.user?.displayName || state.user?.email?.split("@")[0] || "Worship team";
+function hasLeaderAccess(profile = state.profile, team = state.team, user = state.user) {
+  if (!user || !team) return false;
+  if (team.leaderUid === user.uid) return true;
+  return profile?.teamCode === state.teamCode &&
+    profile?.removedByLeader !== true &&
+    profile?.role === "Leader";
+}
 const initials = (name = "") => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "SM";
 const dateLabel = (dateValue, options = { month: "short", day: "numeric", year: "numeric" }) => {
   const date = asDate(dateValue);
@@ -174,6 +190,16 @@ function showOnboarding() {
 function stopTeamListeners() {
   state.listeners.forEach((unsubscribe) => unsubscribe());
   state.listeners = [];
+  state.liveSessionUnsubscribe?.();
+  state.liveSessionUnsubscribe = null;
+  state.liveSession = null;
+  state.liveSessionRef = null;
+  state.livePanelSignature = "";
+  state.liveSongId = "";
+  if (state.liveScrollWriteTimer) clearTimeout(state.liveScrollWriteTimer);
+  state.liveScrollWriteTimer = null;
+  state.teamCode = "";
+  state.isLeader = false;
   state.notificationPrimed.clear();
   state.teamCode = "";
   state.team = null;
@@ -217,6 +243,7 @@ async function createMissingProfile(user) {
 let pendingNewUserName = "";
 
 async function initializeSignedInWorkspace(user) {
+  const previousTeamCode = state.user?.uid === user.uid ? state.teamCode : "";
   stopTeamListeners();
   state.user = user;
   try {
@@ -231,25 +258,45 @@ async function initializeSignedInWorkspace(user) {
       showOnboarding();
       $("#onboarding-error").textContent = "Your previous team removed this account. You can ask its leader to restore your access.";
       $("#rejoin-form").classList.remove("is-hidden");
+      const previousTeamCode = clean(state.profile.removedTeamCode).toUpperCase();
+      const teamCodeField = $("#rejoin-team-code-field");
+      const teamCodeInput = $("input[name=teamCode]", $("#rejoin-form"));
+      if (teamCodeInput) {
+        teamCodeInput.value = previousTeamCode;
+        teamCodeInput.required = !previousTeamCode;
+        teamCodeInput.disabled = Boolean(previousTeamCode);
+      }
+      teamCodeField?.classList.toggle("is-hidden", Boolean(previousTeamCode));
       $$("[data-onboarding]").forEach((button) => { button.disabled = true; });
       return;
     }
     const teamCode = clean(state.profile.teamCode).toUpperCase();
     if (!teamCode) {
       showOnboarding();
+      if (previousTeamCode) {
+        $("#onboarding-error").textContent = "You are no longer on your previous team. Join a team or create one to continue.";
+      }
       return;
     }
     const teamSnapshot = await getDoc(doc(db, "teams", teamCode));
     if (!teamSnapshot.exists()) {
-      await updateDoc(doc(db, "users", user.uid), { teamCode: "", teamName: "", role: "" });
-      state.profile = { ...state.profile, teamCode: "", teamName: "", role: "" };
+      const resetMembership = {
+        teamCode: "",
+        teamName: "",
+        role: "Member",
+        ministryRole: "",
+        removedByLeader: false,
+        removedTeamCode: ""
+      };
+      await updateDoc(doc(db, "users", user.uid), resetMembership);
+      state.profile = { ...state.profile, ...resetMembership };
       showOnboarding();
       $("#onboarding-error").textContent = "That team is no longer available. Join another team or create a new one.";
       return;
     }
     state.teamCode = teamCode;
     state.team = teamSnapshot.data();
-    state.isLeader = state.team.leaderUid === user.uid;
+    state.isLeader = hasLeaderAccess(state.profile, state.team, user);
     $("#loading-screen").classList.add("is-hidden");
     $("#auth-shell").classList.add("is-hidden");
     $("#onboarding-shell").classList.add("is-hidden");
@@ -263,7 +310,18 @@ async function initializeSignedInWorkspace(user) {
       $("#loading-screen").classList.add("is-hidden");
       $("#auth-shell").classList.add("is-hidden");
       $("#app-shell").classList.remove("is-hidden");
-      $("#view-root").innerHTML = `<div class="panel empty-state"><strong>Can’t load your workspace</strong>${escapeHtml(prettyError(error))}</div>`;
+      const teamCode = clean(state.profile?.teamCode).toUpperCase();
+      const teamContext = teamCode
+        ? `This account is linked to team ${escapeHtml(teamCode)}, but Firestore could not confirm its access.`
+        : "Firestore could not confirm this account’s team access.";
+      $("#view-root").innerHTML = `<div class="panel empty-state workspace-access-error"><strong>Can’t open your workspace</strong><span>${teamContext}</span><span>Retry after checking your connection, or sign out and choose the account that belongs to this team.</span><div class="row-actions"><button class="button button-primary" id="workspace-retry" type="button">Try again</button><button class="button button-quiet" id="workspace-sign-out" type="button">Sign out</button></div></div>`;
+      $("#workspace-retry").addEventListener("click", (event) => {
+        setBusy(event.currentTarget, true);
+        initializeSignedInWorkspace(user).finally(() => {
+          if (event.currentTarget.isConnected) setBusy(event.currentTarget, false);
+        });
+      });
+      $("#workspace-sign-out").addEventListener("click", () => signOut(auth));
       return;
     }
     setAuthMessage(prettyError(error));
@@ -290,7 +348,7 @@ function notifyNewFirestoreDocs(snapshot, feed, titleFor, bodyFor) {
     if (change.type !== "added") continue;
     const data = change.doc.data();
     if (data.createdBy === state.user?.uid || data.senderUid === state.user?.uid || data.requesterUid === state.user?.uid) continue;
-    try { new Notification(titleFor(data), { body: bodyFor(data), icon: "./assets/syncedm-mark.svg", tag: `${feed}-${change.doc.id}` }); }
+    try { new Notification(titleFor(data), { body: bodyFor(data), icon: "./assets/syncedm-brand-mark-padded.png", tag: `${feed}-${change.doc.id}` }); }
     catch (error) { console.warn("Browser notification could not be shown", error); }
   }
 }
@@ -324,9 +382,50 @@ function startTeamListeners() {
     });
     state.listeners.push(unsubscribe);
   };
+  if (state.user?.uid) {
+    listen(doc(db, "users", state.user.uid), (snapshot) => {
+      if (!snapshot.exists()) return;
+      const liveProfile = snapshot.data();
+      const liveTeamCode = clean(liveProfile.teamCode).toUpperCase();
+      if (liveProfile.removedByLeader === true || liveTeamCode !== code) {
+        if (!membershipSyncInProgress) {
+          membershipSyncInProgress = true;
+          initializeSignedInWorkspace(state.user)
+            .catch((error) => toast(prettyError(error), "error"))
+            .finally(() => { membershipSyncInProgress = false; });
+        }
+        return;
+      }
+
+      state.profile = { ...state.profile, ...liveProfile };
+      const hadLeaderAccess = state.isLeader;
+      state.isLeader = hasLeaderAccess(state.profile, state.team, state.user);
+      if (hadLeaderAccess !== state.isLeader) {
+        const currentTeam = state.team;
+        const currentTeamCode = state.teamCode;
+        stopTeamListeners();
+        state.team = currentTeam;
+        state.teamCode = currentTeamCode;
+        startTeamListeners();
+      }
+      updateIdentity();
+      if (["home", "profile"].includes(state.view)) renderView();
+    }, "Account membership");
+  }
   listen(collection(db, "teams", code, "services"), (snapshot) => {
     notifyNewFirestoreDocs(snapshot, "services", (item) => item.title || "New service", (item) => `${dateLabel(item.date, { month: "short", day: "numeric" })}${item.venue ? ` · ${item.venue}` : ""}`);
     state.services = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((a, b) => (serviceDate(a)?.getTime() || 0) - (serviceDate(b)?.getTime() || 0));
+    if (state.isLeader) {
+      snapshot.docs.forEach((item) => {
+        const data = item.data();
+        const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+        const assignedMemberUids = [...new Set(assignments.map((assignment) => assignment.uid).filter((uid) => typeof uid === "string" && uid))];
+        const liveControllerUids = [...new Set(assignments.filter((assignment) => /\b(worship leader|leader|vocal\w*|sing\w*|choir|chorus|voice)\b/i.test(assignment.role || "")).map((assignment) => assignment.uid).filter((uid) => typeof uid === "string" && uid))];
+        if (JSON.stringify(data.assignedMemberUids || []) !== JSON.stringify(assignedMemberUids) || JSON.stringify(data.liveControllerUids || []) !== JSON.stringify(liveControllerUids)) {
+          updateDoc(doc(db, "teams", code, "services", item.id), { assignedMemberUids, liveControllerUids }).catch((error) => console.warn("Could not update Live service roster", error));
+        }
+      });
+    }
     updateIdentity();
     if (["home", "schedule", "calendar", "lineups", "notifications", "substitutions"].includes(state.view)) renderView();
   }, "Services");
@@ -342,6 +441,20 @@ function startTeamListeners() {
   }, "Announcements");
   listen(query(collection(db, "users"), where("teamCode", "==", code)), (snapshot) => {
     state.members = snapshot.docs.map((item) => ({ uid: item.id, ...item.data() })).sort((a, b) => (a.uid === state.team?.leaderUid ? -1 : b.uid === state.team?.leaderUid ? 1 : String(a.fullName || a.username).localeCompare(String(b.fullName || b.username))));
+    const selfProfile = state.members.find((member) => member.uid === state.user?.uid);
+    if (selfProfile) {
+      state.profile = { ...state.profile, ...selfProfile };
+      const hadLeaderAccess = state.isLeader;
+      state.isLeader = hasLeaderAccess(state.profile, state.team, state.user);
+      if (hadLeaderAccess !== state.isLeader) {
+        const currentTeam = state.team;
+        const currentTeamCode = state.teamCode;
+        stopTeamListeners();
+        state.team = currentTeam;
+        state.teamCode = currentTeamCode;
+        startTeamListeners();
+      }
+    }
     if (["home", "team", "calendar", "roles", "substitutions"].includes(state.view)) renderView();
   }, "Team roster");
   listen(collection(db, "teams", code, "messages"), (snapshot) => {
@@ -416,7 +529,7 @@ function renderMember(member) {
   const name = member.fullName || member.username || "Team member";
   const photo = member.photoUri ? `<img src="${escapeHtml(member.photoUri)}" alt="" referrerpolicy="no-referrer">` : escapeHtml(initials(name));
   const role = member.ministryRole || member.role || "Member";
-  const isLeader = member.uid === state.team?.leaderUid;
+  const isLeader = member.uid === state.team?.leaderUid || member.role === "Leader";
   return `<article class="member-row"><span class="user-avatar">${photo}</span><span class="item-main"><strong>${escapeHtml(name)}</strong><span>${escapeHtml(role)}</span></span><span class="badge ${isLeader ? "leader" : ""}">${isLeader ? "Leader" : "Member"}</span>${state.isLeader && !isLeader ? `<button class="icon-button" data-action="edit-member-role" data-id="${escapeHtml(member.uid)}" aria-label="Edit ministry role for ${escapeHtml(name)}" type="button">✎</button><button class="icon-button" data-action="remove-member" data-id="${escapeHtml(member.uid)}" aria-label="Remove ${escapeHtml(name)} from team" type="button">×</button>` : ""}</article>`;
 }
 
@@ -593,15 +706,15 @@ function requestSubstitution() {
 
 function renderProfile() {
   const p = state.profile || {};
-  const name = p.fullName || p.username || "";
+  const name = p.username || p.fullName || "";
   setPage("Profile & settings", "Keep your contact details up to date.", "YOUR ACCOUNT");
-  $("#view-root").innerHTML = `<div class="page-columns"><section class="panel"><div class="panel-heading"><h2>Personal information</h2></div><form id="profile-form" class="auth-form"><label>Full name<input name="fullName" value="${escapeHtml(name)}" required maxlength="100"></label><label>Email address<input value="${escapeHtml(state.user?.email || "")}" disabled></label><label>Phone number<input name="phone" type="tel" value="${escapeHtml(p.phone || "")}" maxlength="25" placeholder="Optional"></label><label>Your ministry role<input name="ministryRole" value="${escapeHtml(p.ministryRole || "")}" maxlength="50" placeholder="e.g. Vocalist, Guitarist"></label><label>Country<input name="country" value="${escapeHtml(p.country || "")}" maxlength="50"></label><label>Language<input name="language" value="${escapeHtml(p.language || "English")}" maxlength="50"></label><label>Upload profile photo<input name="photoFile" type="file" accept="image/*"></label><label>Or use a photo URL<input name="photoUri" type="url" value="${escapeHtml(p.photoUri || state.user?.photoURL || "")}" maxlength="500" placeholder="https://…"></label><label class="check-field"><input name="notificationsEnabled" type="checkbox" ${p.notificationsEnabled === false ? "" : "checked"}> Show team notifications</label><label class="check-field"><input name="teamUnmuted" type="checkbox" ${p.teamUnmuted === false ? "" : "checked"}> Keep team updates unmuted</label><button class="button button-primary" type="submit">Save changes</button></form></section><aside class="panel"><div class="panel-heading"><h2>Connected team</h2></div><div class="item-main"><strong>${escapeHtml(state.team?.teamName || "No team")}</strong><span>Invite code: ${escapeHtml(state.teamCode)}</span></div><p class="muted" style="line-height:1.6">This profile and team data sync with the SyncedM Android app through Firebase.</p><button class="button button-quiet" data-action="copy-code" type="button">Copy invite code</button><button class="button button-quiet" id="sign-out" type="button">Sign out</button></aside></div>`;
+  $("#view-root").innerHTML = `<div class="page-columns"><section class="panel"><div class="panel-heading"><h2>Personal information</h2></div><form id="profile-form" class="auth-form"><label>Username<input name="username" value="${escapeHtml(name)}" required maxlength="50"></label><label>Email address<input value="${escapeHtml(state.user?.email || "")}" disabled></label><label>Phone number<input name="phone" type="tel" value="${escapeHtml(p.phone || "")}" maxlength="25" placeholder="Optional"></label><label>Your ministry role<input name="ministryRole" value="${escapeHtml(p.ministryRole || "")}" maxlength="50" placeholder="e.g. Vocalist, Guitarist"></label><label>Country<input name="country" value="${escapeHtml(p.country || "")}" maxlength="50"></label><label>Language<input name="language" value="${escapeHtml(p.language || "English")}" maxlength="50"></label><label>Upload profile photo<input name="photoFile" type="file" accept="image/*"></label><label>Or use a photo URL<input name="photoUri" type="url" value="${escapeHtml(p.photoUri || state.user?.photoURL || "")}" maxlength="500" placeholder="https://…"></label><label class="check-field"><input name="notificationsEnabled" type="checkbox" ${p.notificationsEnabled === false ? "" : "checked"}> Show team notifications</label><label class="check-field"><input name="teamUnmuted" type="checkbox" ${p.teamUnmuted === false ? "" : "checked"}> Keep team updates unmuted</label><button class="button button-primary" type="submit">Save changes</button></form></section><aside class="panel"><div class="panel-heading"><h2>Connected team</h2></div><div class="item-main"><strong>${escapeHtml(state.team?.teamName || "No team")}</strong><span>Invite code: ${escapeHtml(state.teamCode)}</span></div><p class="muted" style="line-height:1.6">This profile and team data sync with the SyncedM Android app through Firebase.</p><button class="button button-quiet" data-action="copy-code" type="button">Copy invite code</button><button class="button button-quiet" id="sign-out" type="button">Sign out</button></aside></div>`;
   $("#profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = $("button[type=submit]", event.currentTarget);
     setBusy(button, true, "Saving…");
     const form = new FormData(event.currentTarget);
-    const fullName = clean(form.get("fullName")).slice(0, 100);
+    const username = clean(form.get("username")).slice(0, 50);
     const phone = clean(form.get("phone")).slice(0, 25);
     const ministryRole = clean(form.get("ministryRole")).slice(0, 50);
     const country = clean(form.get("country")).slice(0, 50);
@@ -612,8 +725,8 @@ function renderProfile() {
     const teamUnmuted = form.has("teamUnmuted");
     try {
       if (photoFile instanceof File && photoFile.size) photoUri = await uploadImageToCloudinary(photoFile, 800);
-      await updateDoc(doc(db, "users", state.user.uid), { fullName, username: fullName.slice(0, 50), phone, ministryRole, country, language, photoUri, notificationsEnabled, teamUnmuted });
-      state.profile = { ...state.profile, fullName, username: fullName.slice(0, 50), phone, ministryRole, country, language, photoUri, notificationsEnabled, teamUnmuted };
+      await updateDoc(doc(db, "users", state.user.uid), { fullName: username, username, phone, ministryRole, country, language, photoUri, notificationsEnabled, teamUnmuted });
+      state.profile = { ...state.profile, fullName: username, username, phone, ministryRole, country, language, photoUri, notificationsEnabled, teamUnmuted };
       updateIdentity();
       toast("Profile updated.", "success");
       renderView();
@@ -758,23 +871,161 @@ function songDisplayMode() {
   return "both";
 }
 
+function canControlLiveSong() {
+  const service = state.services.find((item) => item.id === state.selectedServiceId);
+  const assignment = (service?.assignments || []).find((item) => item.uid === state.user?.uid);
+  const assignedRole = clean(assignment?.role).toLowerCase();
+  if (!assignment || !state.user?.uid) return false;
+  return /\b(worship leader|leader|vocal\w*|sing\w*|choir|chorus|voice)\b/.test(assignedRole);
+}
+
+function isAssignedToLiveService() {
+  if (!state.selectedServiceId || !state.user?.uid) return false;
+  const service = state.services.find((item) => item.id === state.selectedServiceId);
+  return (service?.assignments || []).some((item) => item.uid === state.user.uid);
+}
+
+function liveKeyOffset(baseKey, liveKey) {
+  const target = clean(liveKey).toLowerCase();
+  for (let offset = 0; offset < 12; offset += 1) {
+    if (transposeChordToken(baseKey || "C", offset).toLowerCase() === target) return offset;
+  }
+  return 0;
+}
+
+function updateLivePanel(song) {
+  const panel = $("#live-session-panel");
+  if (!panel) return;
+  const serviceId = state.selectedServiceId;
+  const session = state.liveSession;
+  const controller = state.liveController && canControlLiveSong();
+  const scrollButton = panel.parentElement?.querySelector("[data-action=toggle-sheet-scroll]");
+  if (scrollButton) {
+    scrollButton.disabled = Boolean(session?.active);
+    scrollButton.title = session?.active ? "Manual scrolling is used during live team sync" : "Scroll the sheet automatically";
+  }
+  if (serviceId && !isAssignedToLiveService()) {
+    panel.innerHTML = `<span class="live-session-copy"><strong>Live sync is limited to this service’s assigned members</strong><small>Ask the service leader to add your account to the lineup.</small></span>`;
+    return;
+  }
+  if (!serviceId) {
+    panel.innerHTML = `<span class="live-session-copy"><strong>Live sync</strong><small>Open this song from a service lineup to sync the team.</small></span>`;
+    return;
+  }
+  if (session?.active && session.songId === song.id) {
+    const status = controller ? "You’re leading this live song" : `Following ${escapeHtml(session.controllerName || "the worship leader")}`;
+    panel.innerHTML = `<span class="live-session-copy"><strong><i class="live-pulse"></i>LIVE · ${status}</strong><small>Shared key ${escapeHtml(session.key || song.key || "C")} · scroll the sheet manually to sync the team</small></span>${controller ? `<span class="live-key-controls"><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="live-key-label">${escapeHtml(session.key || song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span><span class="live-session-buttons"><button class="button button-quiet" data-action="live-stop" type="button">End live</button></span>` : `<span class="live-follow-badge">FOLLOWING LIVE</span>`}`;
+    return;
+  }
+  if (session?.active && session.songId !== song.id) {
+    const liveSong = state.songs.find((item) => item.id === session.songId);
+    const title = escapeHtml(session.songTitle || liveSong?.title || "another song");
+    panel.innerHTML = `<span class="live-session-copy"><strong>Live session · ${title}</strong><small>${controller ? "Start this song to switch the team." : "Open the live song to follow the team."}</small></span>${controller ? `<button class="button button-primary" data-action="live-start" data-id="${escapeHtml(song.id)}" type="button">Make this live</button>` : liveSong ? `<button class="button button-quiet" data-action="open-live-song" data-id="${escapeHtml(liveSong.id)}" type="button">Open live song</button>` : ""}`;
+    return;
+  }
+  panel.innerHTML = controller
+    ? `<span class="live-session-copy"><strong>Ready to sync</strong><small>Start live to share this song’s scroll and key with the service team.</small></span><button class="button button-primary" data-action="live-start" data-id="${escapeHtml(song.id)}" type="button">Start live</button>`
+    : `<span class="live-session-copy"><strong>Live sync is ready</strong><small>Waiting for the worship leader or vocalist to start this song.</small></span><span class="live-follow-badge is-waiting">WAITING</span>`;
+}
+
+function liveSheetScroller() {
+  return $("#song-live-scroll-area");
+}
+
+function setLiveKey(song, key) {
+  const scroller = liveSheetScroller();
+  const previousTop = scroller?.scrollTop || 0;
+  state.songTranspose = liveKeyOffset(song.key || "C", key);
+  const keyLabel = $("#song-key-label");
+  if (keyLabel) keyLabel.textContent = `Key ${key || song.key || "C"}`;
+  const liveKeyLabel = $("#live-key-label");
+  if (liveKeyLabel) liveKeyLabel.textContent = key || song.key || "C";
+  const pre = $("#song-sheet");
+  if (pre) pre.textContent = transposeSheet(formatChordSheet(song.sheet || ""), state.songTranspose);
+  if (scroller) scroller.scrollTop = Math.min(previousTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+}
+
+function subscribeLiveSong(song) {
+  state.liveSessionUnsubscribe?.();
+  state.liveSessionUnsubscribe = null;
+  state.liveSession = null;
+  state.liveSongId = song.id;
+  state.liveController = canControlLiveSong();
+  const serviceId = state.selectedServiceId;
+  if (!serviceId || !isAssignedToLiveService()) { updateLivePanel(song); return; }
+  const ref = doc(db, "teams", state.teamCode, "live_sessions", serviceId);
+  state.liveSessionRef = ref;
+  state.liveSessionUnsubscribe = onSnapshot(ref, (snapshot) => {
+    if (state.liveSongId !== song.id) return;
+    state.liveSession = snapshot.exists() ? snapshot.data() : null;
+    const session = state.liveSession;
+    const activeForSong = session?.active && session.songId === song.id;
+    state.liveController = canControlLiveSong() && (!session?.active || session.controllerUid === state.user?.uid);
+    const panelSignature = JSON.stringify([session?.active, session?.songId, session?.key, session?.controllerUid, session?.controllerName, state.liveController]);
+    if (panelSignature !== state.livePanelSignature) {
+      state.livePanelSignature = panelSignature;
+      updateLivePanel(song);
+    }
+    if (session?.active && state.chordScrollTimer) {
+      clearInterval(state.chordScrollTimer); state.chordScrollTimer = null;
+      const button = $("[data-action=toggle-sheet-scroll]"); if (button) button.textContent = "Start auto-scroll";
+    }
+    if (activeForSong) {
+      setLiveKey(song, session.key || song.key || "C");
+      const scroller = liveSheetScroller();
+      if (scroller && !state.liveController && !state.liveApplyingRemote) {
+        const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const target = Math.max(0, Math.min(1, Number(session.scrollRatio) || 0)) * maxScroll;
+        if (Math.abs(scroller.scrollTop - target) > 3) {
+          state.liveApplyingRemote = true;
+          scroller.scrollTop = target;
+          window.setTimeout(() => { state.liveApplyingRemote = false; }, 80);
+        }
+      }
+    }
+  }, (error) => {
+    console.warn("Live song sync could not connect", error);
+    const panel = $("#live-session-panel");
+    const detail = error?.code === "permission-denied"
+      ? "This account is not in the saved service roster. Ask the service leader to save the lineup again, then reopen this song."
+      : "Check your internet connection and try opening the song again.";
+    if (panel) panel.innerHTML = `<span class="live-session-copy"><strong>Live sync unavailable</strong><small>${escapeHtml(detail)}</small></span>`;
+  });
+  const scroller = liveSheetScroller();
+  scroller?.addEventListener("scroll", () => {
+    const session = state.liveSession;
+    if (!state.liveController || !session?.active || session.songId !== song.id || state.liveApplyingRemote) return;
+    if (state.liveScrollWriteTimer) clearTimeout(state.liveScrollWriteTimer);
+    state.liveScrollWriteTimer = setTimeout(() => {
+      const currentScroller = liveSheetScroller();
+      if (!currentScroller || !state.liveSessionRef) return;
+      const maxScroll = Math.max(0, currentScroller.scrollHeight - currentScroller.clientHeight);
+      updateDoc(state.liveSessionRef, { scrollRatio: maxScroll ? currentScroller.scrollTop / maxScroll : 0, controllerPlatform: "web", updatedAt: Date.now() }).catch((error) => console.warn("Could not sync live scroll", error));
+    }, 180);
+  }, { passive: true });
+  updateLivePanel(song);
+}
+
 function openSong(song) {
   const modal = $("#modal");
   state.songTranspose = 0;
-  state.sheetScrollSpeed = 35;
   const displayMode = songDisplayMode();
   const reference = clean(song.referenceUrl || "");
   const safeReference = songReferenceMarkup(reference);
-  const sheet = song.sheet?.trim() ? `<div><div class="transpose-controls"><strong>Chord sheet</strong><span><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="song-key-label">Key ${escapeHtml(song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span></div><div class="sheet-actions"><button class="link-button" data-action="toggle-sheet-scroll" type="button">Start auto-scroll</button><button class="link-button" data-action="format-song-sheet" data-id="${escapeHtml(song.id)}" type="button">Format sections</button></div><label class="scroll-speed-control" for="sheet-scroll-speed"><span>Auto-scroll speed</span><input id="sheet-scroll-speed" type="range" min="10" max="100" step="5" value="35"><output id="sheet-scroll-speed-value">35 px/s</output></label><pre id="song-sheet">${escapeHtml(formatChordSheet(song.sheet))}</pre></div>` : `<div class="sheet-empty"><strong>Chord sheet not added yet</strong><p>Ask your team leader to add the chart to this song in the shared song library.</p></div>`;
+  state.sheetScrollSpeed = 35;
+  const sheetContent = song.sheet?.trim() ? `<pre id="song-sheet">${escapeHtml(formatChordSheet(song.sheet))}</pre>` : `<div class="sheet-empty"><strong>Chord sheet not added yet</strong><p>Ask your team leader to add the chart to this song in the shared song library.</p></div>`;
+  const sheetControls = displayMode === "lyrics" ? "" : `<div class="transpose-controls"><strong>Chord sheet</strong><span><button class="icon-button" data-action="transpose-song" data-delta="-1" data-id="${escapeHtml(song.id)}" aria-label="Transpose down" type="button">−</button><b id="song-key-label">Key ${escapeHtml(song.key || "C")}</b><button class="icon-button" data-action="transpose-song" data-delta="1" data-id="${escapeHtml(song.id)}" aria-label="Transpose up" type="button">＋</button></span></div><div class="sheet-actions"><button class="link-button" data-action="format-song-sheet" data-id="${escapeHtml(song.id)}" type="button">Format sections</button><button class="link-button" data-action="toggle-sheet-scroll" type="button">Start auto-scroll</button><label class="sheet-speed-control">Auto-scroll speed <input type="range" min="10" max="80" value="35" data-sheet-speed><output>35 px/s</output></label></div>`;
   const generatedLyrics = generateLyricsFromChordSheet(song.sheet || "");
   const lyricText = generatedLyrics || song.lyrics?.trim() || "";
-  const lyrics = lyricText ? `<div class="song-lyrics"><strong>Lyrics</strong><p>${escapeHtml(lyricText)}</p></div>` : `<div class="sheet-empty"><strong>Lyrics could not be extracted</strong><p>Add the words to the chord sheet, either below chord lines or with chord symbols in brackets.</p></div>`;
+  const lyrics = lyricText ? `<div class="song-lyrics" id="song-lyrics-scroll"><strong>Lyrics</strong><p>${escapeHtml(lyricText)}</p></div>` : `<div class="sheet-empty"><strong>Lyrics could not be extracted</strong><p>Add the words to the chord sheet, either below chord lines or with chord symbols in brackets.</p></div>`;
   const metronome = Number(song.bpm) > 0 ? `<button class="button button-quiet" data-action="metronome" data-bpm="${Math.max(30, Math.min(240, Number(song.bpm)))}" type="button">▶ Start metronome · ${escapeHtml(song.bpm)} BPM</button>` : "";
+  const mediaAndTempo = `<div class="song-top-tools">${safeReference || `<p class="muted">No audio or video reference has been added.</p>`}${metronome}</div>`;
   const roleView = displayMode === "lyrics" ? "VOCALIST VIEW" : displayMode === "chords" ? "INSTRUMENTALIST VIEW" : "TEAM SONG";
-  const detail = displayMode === "lyrics" ? lyrics : displayMode === "chords" ? `${sheet}${safeReference}${metronome}` : `${sheet}${lyrics}${safeReference || `<p class="muted">No audio or video reference has been added.</p>`}${metronome}`;
+  const detail = displayMode === "lyrics" ? lyrics : displayMode === "chords" ? sheetContent : `${sheetContent}${lyrics}`;
   const intro = displayMode === "lyrics" ? escapeHtml(song.artist || "Team arrangement") : `${escapeHtml(song.artist || "Team arrangement")} · ${escapeHtml(song.bpm || "—")} BPM`;
-  $("#modal-content").innerHTML = `<p class="eyebrow">${roleView}</p><h2>${escapeHtml(song.title || "Untitled song")}</h2><p class="modal-intro">${intro}</p><div class="modal-detail">${detail}</div>${state.isLeader ? `<div class="modal-actions"><button class="button button-quiet" data-action="delete-song" data-id="${escapeHtml(song.id)}" type="button">Delete song</button><button class="button button-quiet" data-action="edit-song" data-id="${escapeHtml(song.id)}" type="button">Edit song</button><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>` : `<div class="modal-actions"><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`}`;
+  $("#modal-content").innerHTML = `<p class="eyebrow">${roleView}</p><h2>${escapeHtml(song.title || "Untitled song")}</h2><p class="modal-intro">${intro}</p><section class="live-session-panel" id="live-session-panel" aria-live="polite"></section>${mediaAndTempo}${sheetControls}<div class="modal-detail live-scroll-area" id="song-live-scroll-area">${detail}</div>${state.isLeader ? `<div class="modal-actions"><button class="button button-quiet" data-action="delete-song" data-id="${escapeHtml(song.id)}" type="button">Delete song</button><button class="button button-quiet" data-action="edit-song" data-id="${escapeHtml(song.id)}" type="button">Edit song</button><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>` : `<div class="modal-actions"><button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`}`;
   modal.showModal();
+  subscribeLiveSong(song);
 }
 
 function editSong(song) {
@@ -834,11 +1085,13 @@ function editService(service) {
       const member = state.members.find((item) => `${item.fullName || item.username || ""}`.toLowerCase() === name.toLowerCase());
       return { uid: member?.uid || "", email: member?.email || "", name: member ? (member.fullName || member.username || name) : name, role };
     });
+    const assignedMemberUids = [...new Set(assignments.map((item) => item.uid).filter(Boolean))];
+    const liveControllerUids = [...new Set(assignments.filter((item) => /\b(worship leader|leader|vocal\w*|sing\w*|choir|chorus|voice)\b/i.test(item.role)).map((item) => item.uid).filter(Boolean))];
     let coverImageUrl = clean(values.coverImageUrl).slice(0, 1000);
     if (values.coverImage instanceof File && values.coverImage.size) coverImageUrl = await uploadImageToCloudinary(values.coverImage, 1200);
     const payload = {
       title: clean(values.title).slice(0, 100), date: clean(values.date), start: clean(values.start), end: clean(values.end), venue: clean(values.venue).slice(0, 100),
-      status: values.status === "Draft" ? "Draft" : "Published", songs, assignments, coverImageUrl,
+      status: values.status === "Draft" ? "Draft" : "Published", songs, assignments, assignedMemberUids, liveControllerUids, coverImageUrl,
       rehearsal: { date: clean(values.rehearsalDate), start: clean(values.rehearsalStart), end: clean(values.rehearsalEnd), venue: clean(values.rehearsalVenue).slice(0, 100), notes: clean(values.rehearsalNotes).slice(0, 2000) }, updatedAt: Date.now()
     };
     if (service) await updateDoc(doc(db, "teams", state.teamCode, "services", service.id), payload);
@@ -1015,12 +1268,12 @@ $("#register-form").addEventListener("submit", async (event) => {
   const button = $("button[type=submit]", event.currentTarget);
   setBusy(button, true, "Creating account…");
   const form = new FormData(event.currentTarget);
-  pendingNewUserName = clean(form.get("name")).slice(0, 100);
+  pendingNewUserName = clean(form.get("username")).slice(0, 50);
   try {
     const credential = await createUserWithEmailAndPassword(auth, clean(form.get("email")), String(form.get("password") || ""));
     await updateProfile(credential.user, { displayName: pendingNewUserName });
     await createMissingProfile(credential.user);
-    await updateDoc(doc(db, "users", credential.user.uid), { fullName: pendingNewUserName, username: pendingNewUserName.slice(0, 50) });
+    await updateDoc(doc(db, "users", credential.user.uid), { fullName: pendingNewUserName, username: pendingNewUserName });
   } catch (error) {
     pendingNewUserName = "";
     setAuthMessage(prettyError(error));
@@ -1092,11 +1345,23 @@ $("#create-team-form input[name=teamCode]").addEventListener("input", (event) =>
 
 $("#rejoin-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const teamCode = clean(state.profile?.removedTeamCode).toUpperCase();
-  if (!teamCode) return;
-  const button = $("button[type=submit]", event.currentTarget);
+  // Keep a stable form reference across awaits; older embedded browsers may not
+  // support FormData(form), and Event.currentTarget is cleared after dispatch.
+  const form = event.currentTarget;
+  const teamCodeField = form.elements.namedItem("teamCode");
+  const reasonField = form.elements.namedItem("reason");
+  const teamCode = (clean(state.profile?.removedTeamCode) || clean(teamCodeField?.value)).toUpperCase();
+  const button = $("button[type=submit]", form);
   const errorNode = $("#onboarding-error");
   errorNode.textContent = "";
+  if (!/^[A-Z0-9]{6}$/.test(teamCode)) {
+    errorNode.textContent = "Enter the six-character invite code for your previous team.";
+    return;
+  }
+  if (!state.user?.uid) {
+    errorNode.textContent = "Your sign-in session expired. Sign in again before requesting to rejoin.";
+    return;
+  }
   setBusy(button, true, "Sending…");
   try {
     const requests = await getDocs(query(collection(db, "teams", teamCode, "rejoin_requests"), where("userUid", "==", state.user.uid)));
@@ -1105,9 +1370,9 @@ $("#rejoin-form").addEventListener("submit", async (event) => {
       return;
     }
     const ref = doc(collection(db, "teams", teamCode, "rejoin_requests"));
-    await setDoc(ref, { id: ref.id, teamCode, userUid: state.user.uid, userName: displayName().slice(0, 100), userEmail: (state.user.email || "").slice(0, 100), reason: clean(new FormData(event.currentTarget).get("reason")).slice(0, 500), status: "Pending", createdAt: Date.now(), updatedAt: Date.now() });
-    event.currentTarget.reset();
-    errorNode.textContent = "Request sent. Your team leader can approve it from the Android app.";
+    await setDoc(ref, { id: ref.id, teamCode, userUid: state.user.uid, userName: displayName().slice(0, 100), userEmail: (state.user.email || "").slice(0, 100), reason: clean(reasonField?.value).slice(0, 500), status: "Pending", createdAt: Date.now(), updatedAt: Date.now() });
+    form.reset();
+    errorNode.textContent = "Request sent. Your team leader can approve it in SyncedM.";
   } catch (error) { errorNode.textContent = prettyError(error); }
   finally { setBusy(button, false); }
 });
@@ -1125,6 +1390,14 @@ $("#onboarding-shell").addEventListener("click", (event) => {
   $("#join-team-form").classList.toggle("is-hidden", mode !== "join");
   $("#create-team-form").classList.toggle("is-hidden", mode !== "create");
   $("#onboarding-error").textContent = "";
+});
+
+document.addEventListener("input", (event) => {
+  const slider = event.target.closest("[data-sheet-speed]");
+  if (!slider) return;
+  state.sheetScrollSpeed = Number(slider.value) || 35;
+  const output = slider.parentElement.querySelector("output");
+  if (output) output.textContent = state.sheetScrollSpeed + " px/s";
 });
 
 document.addEventListener("click", async (event) => {
@@ -1157,31 +1430,79 @@ document.addEventListener("click", async (event) => {
     case "transpose-song": {
       const song = state.songs.find((item) => item.id === action.dataset.id);
       if (!song) break;
+      const liveSessionActive = state.liveSession?.active && state.liveSession.songId === song.id;
+      if (liveSessionActive && !state.liveController) { toast("The worship leader or vocalist is controlling the live key."); break; }
       state.songTranspose = (state.songTranspose + Number(action.dataset.delta) + 12) % 12;
-      $("#song-key-label").textContent = `Key ${transposeChordToken(song.key || "C", state.songTranspose)}`;
-      $("#song-sheet").textContent = transposeSheet(song.sheet || "", state.songTranspose);
+      const targetKey = transposeChordToken(song.key || "C", state.songTranspose);
+      $("#song-key-label").textContent = `Key ${targetKey}`;
+      const sharedKey = $("#live-key-label");
+      if (sharedKey) sharedKey.textContent = targetKey;
+      const sheetPreview = $("#song-sheet");
+      if (sheetPreview) sheetPreview.textContent = transposeSheet(formatChordSheet(song.sheet || ""), state.songTranspose);
+      if (liveSessionActive && state.liveSessionRef) {
+        updateDoc(state.liveSessionRef, { key: targetKey, controllerPlatform: "web", updatedAt: Date.now() }).catch((error) => toast(prettyError(error), "error"));
+      }
       break;
     }
-    case "toggle-sheet-scroll": {
-      const pre = $("#song-sheet");
-      if (!pre) break;
-      if (state.chordScrollTimer) {
-        clearInterval(state.chordScrollTimer); state.chordScrollTimer = null; action.textContent = "Start auto-scroll";
-      } else {
-        action.textContent = "Pause auto-scroll";
-        state.chordScrollTimer = setInterval(() => {
-          if (!pre.isConnected || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 2) {
-            clearInterval(state.chordScrollTimer); state.chordScrollTimer = null; action.textContent = "Start auto-scroll"; return;
-          }
-          pre.scrollTop += state.sheetScrollSpeed / 20;
-        }, 50);
+    case "live-start": {
+      const song = state.songs.find((item) => item.id === action.dataset.id);
+      if (!song || !state.selectedServiceId || !canControlLiveSong() || !state.liveSessionRef) break;
+      try {
+        await setDoc(state.liveSessionRef, {
+          teamCode: state.teamCode,
+          serviceId: state.selectedServiceId,
+          active: true,
+          songId: song.id,
+          songTitle: song.title || "Song",
+          controllerUid: state.user.uid,
+          controllerName: displayName(),
+          controllerPlatform: "web",
+          key: song.key || "C",
+          scrollRatio: 0,
+          scrolling: false,
+          scrollSpeed: 35,
+          updatedAt: Date.now()
+        }, { merge: true });
+        toast("Live song sync started.", "success");
+      } catch (error) { toast(prettyError(error), "error"); }
+      break;
+    }
+    case "live-stop":
+      if (state.liveController && state.liveSessionRef) {
+        try { await updateDoc(state.liveSessionRef, { active: false, scrolling: false, updatedAt: Date.now() }); toast("Live song sync ended.", "success"); }
+        catch (error) { toast(prettyError(error), "error"); }
       }
+      break;
+    case "open-live-song": {
+      const song = state.songs.find((item) => item.id === action.dataset.id);
+      if (song) openSong(song);
       break;
     }
     case "format-song-sheet": {
       const song = state.songs.find((item) => item.id === action.dataset.id);
       const pre = $("#song-sheet");
       if (song && pre) pre.textContent = transposeSheet(formatChordSheet(song.sheet || ""), state.songTranspose);
+      break;
+    }
+    case "toggle-sheet-scroll": {
+      if (state.liveSession?.active) { toast("Auto-scroll is paused during live team sync. Scroll manually to sync everyone."); break; }
+      const area = liveSheetScroller();
+      if (!area) break;
+      if (state.chordScrollTimer) {
+        clearInterval(state.chordScrollTimer); state.chordScrollTimer = null;
+        action.textContent = "Start auto-scroll";
+      } else {
+        action.textContent = "Pause auto-scroll";
+        state.chordScrollTimer = setInterval(() => {
+          const current = liveSheetScroller();
+          if (!current || state.liveSession?.active || current.scrollTop + current.clientHeight >= current.scrollHeight - 1) {
+            clearInterval(state.chordScrollTimer); state.chordScrollTimer = null;
+            const button = $("[data-action=toggle-sheet-scroll]"); if (button) button.textContent = "Start auto-scroll";
+            return;
+          }
+          current.scrollTop += state.sheetScrollSpeed / 20;
+        }, 50);
+      }
       break;
     }
     case "metronome": {
@@ -1290,9 +1611,11 @@ document.addEventListener("click", async (event) => {
       if (!state.isLeader) break;
       const member = state.members.find((item) => item.uid === action.dataset.id);
       if (!member) break;
-      const options = [...new Set([member.ministryRole, ...(state.team.roles || [])].filter(Boolean))];
+      const options = [...new Set([member.ministryRole, "Worship Leader", "Substitute Leader", ...(state.team.roles || [])].filter(Boolean))];
       openModal("Update ministry role", `Set the role shown for ${member.fullName || member.username || "this member"}.`, [{ name: "ministryRole", label: "Ministry role", type: "select", value: member.ministryRole || "", options: [{ value: "", label: "No role" }, ...options.map((role) => ({ value: role, label: role }))] }], "Save role", async (values) => {
-        await updateDoc(doc(db, "users", member.uid), { ministryRole: clean(values.ministryRole).slice(0, 50) });
+        const ministryRole = clean(values.ministryRole).slice(0, 50);
+        const role = ["Worship Leader", "Substitute Leader"].includes(ministryRole) ? "Leader" : "Member";
+        await updateDoc(doc(db, "users", member.uid), { ministryRole, role });
       });
       break;
     }
@@ -1355,6 +1678,14 @@ document.addEventListener("keydown", (event) => {
 });
 
 $("#modal").addEventListener("close", () => {
+  state.liveSessionUnsubscribe?.();
+  state.liveSessionUnsubscribe = null;
+  state.liveSession = null;
+  state.liveSessionRef = null;
+  state.livePanelSignature = "";
+  state.liveSongId = "";
+  if (state.liveScrollWriteTimer) clearTimeout(state.liveScrollWriteTimer);
+  state.liveScrollWriteTimer = null;
   if (state.chordScrollTimer) clearInterval(state.chordScrollTimer);
   state.chordScrollTimer = null;
   if (state.metronomeTimer) clearInterval(state.metronomeTimer);
@@ -1365,13 +1696,6 @@ $("#modal").addEventListener("close", () => {
 
 $("#modal").addEventListener("click", (event) => {
   if (event.target === $("#modal")) $("#modal").close();
-});
-
-document.addEventListener("input", (event) => {
-  if (event.target.id !== "sheet-scroll-speed") return;
-  state.sheetScrollSpeed = Number(event.target.value) || 35;
-  const output = $("#sheet-scroll-speed-value");
-  if (output) output.textContent = `${state.sheetScrollSpeed} px/s`;
 });
 
 const redirectResult = getRedirectResult(auth).then(() => null).catch((error) => error);

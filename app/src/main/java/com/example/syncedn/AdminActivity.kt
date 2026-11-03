@@ -766,6 +766,12 @@ class AdminActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        sheetAutoScroll?.close()
+        sheetAutoScroll = null
+        liveSessionListener?.remove()
+        liveSessionListener = null
+        liveServiceObserver?.remove()
+        liveServiceObserver = null
         servicesListener?.remove()
         substitutionsListener?.remove()
         rosterListener?.remove()
@@ -778,16 +784,21 @@ class AdminActivity : AppCompatActivity() {
     }
 
     private fun navigate(next: String, triggerRefresh: Boolean = true) {
+        if (next != "songDetails") {
+            liveSessionListener?.remove()
+            liveSessionListener = null
+        }
         if (next in listOf("start", "login")) {
             startActivity(Intent(this, MainActivity::class.java).putExtra("startPage", next))
             finish()
             return
         }
-        sheetAutoScroll?.close()
-        sheetAutoScroll = null
         songMetronome?.close()
         songMetronome = null
+        sheetAutoScroll?.close()
+        sheetAutoScroll = null
         page = next
+        if (next in listOf("service", "adminLineup")) observeLiveService(leaderDraft)
         homeMemberCount = null
         val root = buildScreen(page)
         screenRoot = root
@@ -1201,7 +1212,7 @@ class AdminActivity : AppCompatActivity() {
                     }
                     BitmapFactory.decodeResource(resources, resId, bounds)
                     val maxSide = when (name) {
-                        "profile_photo", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
+                        "profile_photo", "syncedm_brand_mark", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
                         else -> 900
                     }
                     var sample = 1
@@ -1228,7 +1239,7 @@ class AdminActivity : AppCompatActivity() {
                     }
                     BitmapFactory.decodeResource(resources, resId, bounds)
                     val maxSide = when (name) {
-                        "profile_photo", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
+                        "profile_photo", "syncedm_brand_mark", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
                         else -> 900
                     }
                     var sample = 1
@@ -1486,7 +1497,7 @@ class AdminActivity : AppCompatActivity() {
         scroll.addView(col, FrameLayout.LayoutParams(-1, -2))
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
         val brandRow = horizontal().apply { setPadding(dp(24), dp(52), dp(24), dp(16)) }
-        brandRow.add(image("synced_n_logo_sharp", "SyncedM music logo"), 54, 54)
+        brandRow.add(image("syncedm_brand_mark", "SyncedM music logo"), 54, 54)
         brandRow.add(View(this), 12, 1)
         brandRow.add(vertical().apply {
             add(text("SyncedM", 22, navy, true))
@@ -1963,7 +1974,7 @@ class AdminActivity : AppCompatActivity() {
         hero.topContentHeightDp = 190
         val top=vertical().apply { setPadding(dp(24),dp(24),dp(24),0) }
         val row=horizontal()
-        row.add(image("synced_n_logo_sharp", "SyncedM music logo"),42,42)
+        row.add(image("syncedm_brand_mark", "SyncedM music logo"),42,42)
         row.add(View(this),12,1)
         val brand=vertical().apply {
             add(text("SyncedM",18,navy,true))
@@ -2191,7 +2202,7 @@ class AdminActivity : AppCompatActivity() {
                 setPadding(dp(13),dp(32),dp(12),dp(12))
                 val titleRow=horizontal()
                 titleRow.add(ImageView(this@AdminActivity).apply {
-                    setImageResource(R.drawable.synced_n_logo_sharp)
+                    setImageResource(R.drawable.syncedm_brand_mark)
                     contentDescription = "SyncedM Ministry Team Logo"
                     scaleType = ImageView.ScaleType.FIT_CENTER
                 }, 50, 50)
@@ -2802,6 +2813,9 @@ class AdminActivity : AppCompatActivity() {
     private var substitutionsListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var rosterListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var userMembershipListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveSessionListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveServiceObserver: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveAutoOpenSongId = ""
     private var activeServiceIndex = -1
     private var roleMember = "Angelo Daniel"
     private var roleMemberUid = ""
@@ -3123,7 +3137,7 @@ class AdminActivity : AppCompatActivity() {
         val legacyReason = preferences.getString("unavailableReason", "").orEmpty()
 
         return roster.filter { !it.removedByLeader }.map { member ->
-            val name = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+            val name = member.displayName
             val role = member.ministryRole.ifBlank { if (member.role.equals("Leader", true)) "Worship Leader" else "Member" }
             val isSelfMember = (name.equals(fullName, ignoreCase = true) || member.uid == preferences.getString("userId", ""))
             val ranges = if (member.unavailableRanges.isNotEmpty()) {
@@ -4752,8 +4766,8 @@ class AdminActivity : AppCompatActivity() {
     private var expandedRole: String? = null
     private var selectedSong = "Trust in God"
     private var editingAnnouncement: AnnouncementData? = null
-    private var sheetAutoScroll: SheetAutoScrollControls? = null
     private var songMetronome: MetronomeView? = null
+    private var sheetAutoScroll: SheetAutoScrollControls? = null
     private var songDetailsBack = "songs"
     private var selectedService = "Sunday Worship Service"
     private var serviceReturnPage = "schedule"
@@ -6191,6 +6205,75 @@ class AdminActivity : AppCompatActivity() {
             }
         }
     }
+    private fun observeLiveService(service: org.json.JSONObject) {
+        val serviceId = service.optString("id").trim()
+        val teamCode = preferences.getString("teamCode", "").orEmpty().trim().uppercase()
+        val uid = AuthManager.currentUser?.uid ?: preferences.getString("userId", "").orEmpty()
+        liveServiceObserver?.remove()
+        liveServiceObserver = null
+        liveAutoOpenSongId = ""
+        if (serviceId.isBlank() || teamCode.isBlank() || uid.isBlank()) return
+        val assignments = service.optJSONArray("assignments") ?: return
+        if ((0 until assignments.length()).none { assignments.optJSONObject(it)?.optString("uid") == uid }) return
+        val serviceSongs = service.optJSONArray("songs")
+        val assignedSongTitles = (0 until (serviceSongs?.length() ?: 0)).mapNotNull { index ->
+            val title = com.example.syncedn.data.model.ServiceSong.unpack(serviceSongs?.opt(index)).title.trim()
+            title.takeIf { it.isNotBlank() }
+        }
+        liveServiceObserver = com.example.syncedn.data.database.LiveSongSessionRepository
+            .session(teamCode, serviceId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.w("LiveSong", "Could not observe the selected service live session", error)
+                    return@addSnapshotListener
+                }
+                val data = snapshot?.data ?: return@addSnapshotListener
+                if (data["active"] != true) {
+                    liveAutoOpenSongId = ""
+                    return@addSnapshotListener
+                }
+                val targetSongId = data["songId"]?.toString().orEmpty()
+                if (targetSongId.isBlank() || targetSongId == liveAutoOpenSongId) return@addSnapshotListener
+                liveAutoOpenSongId = targetSongId
+                val songs = TeamRepository.getCachedSongs(teamCode, preferences)
+                val match = songs.firstOrNull { it.id == targetSongId || it.title.equals(data["songTitle"]?.toString(), true) }
+                if (match == null) {
+                    TeamRepository.getSongs(teamCode, forceRefresh = true, preferences = preferences) { result ->
+                        runOnUiThread {
+                            val refreshed = result.getOrNull().orEmpty().firstOrNull {
+                                it.id == targetSongId || it.title.equals(data["songTitle"]?.toString(), true)
+                            }
+                            if (refreshed == null) { liveAutoOpenSongId = ""; return@runOnUiThread }
+                            openLiveSongDetail(serviceId, targetSongId, refreshed.title, assignedSongTitles)
+                        }
+                    }
+                } else {
+                    openLiveSongDetail(serviceId, targetSongId, match.title, assignedSongTitles)
+                }
+            }
+    }
+
+    private fun openLiveSongDetail(serviceId: String, songId: String, title: String, assignedSongTitles: List<String>) {
+        runOnUiThread {
+            if (leaderDraft.optString("id") != serviceId || title.isBlank()) return@runOnUiThread
+            if (assignedSongTitles.isNotEmpty() && assignedSongTitles.none { it.equals(title, true) }) return@runOnUiThread
+            if (page == "songDetails" && selectedSong.equals(title, true)) {
+                liveAutoOpenSongId = songId
+                return@runOnUiThread
+            }
+            if (page !in listOf("home", "service", "schedule", "calendar", "adminLineup", "songs", "songDetails")) return@runOnUiThread
+            if (page == "songDetails") {
+                liveSessionListener?.remove()
+                liveSessionListener = null
+            } else {
+                songDetailsBack = page
+            }
+            liveAutoOpenSongId = songId
+            selectedSong = title
+            navigate("songDetails")
+        }
+    }
+
     private fun songDetailsView(): View = memberPage("Song Details", songDetailsBack, footer = { sheetAutoScroll }) { col ->
         val activeCode = preferences.getString("teamCode", "").orEmpty()
         val currentSong = TeamRepository.getCachedSongs(activeCode, preferences).find { it.title.equals(selectedSong, ignoreCase = true) }
@@ -6221,18 +6304,58 @@ class AdminActivity : AppCompatActivity() {
         val showChords = hasChordsInSheet && !isVocalist
         val tempo = currentSong?.bpm?.toString() ?: savedSong.optString("bpm", "74")
         var offset = ((preferences.getInt("chord_transpose_$selectedSong", 0) % 12) + 12) % 12
-        val key = text("", 13, purple, true)
+        val serviceId = leaderDraft.optString("id")
+        val songId = currentSong?.id?.ifBlank { selectedSong } ?: selectedSong
+        val currentUid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid
+            ?: preferences.getString("userId", "").orEmpty()
+        val assignments = leaderDraft.optJSONArray("assignments") ?: org.json.JSONArray()
+        val liveAssignedRole = (0 until assignments.length()).firstNotNullOfOrNull { index ->
+            assignments.optJSONObject(index)?.takeIf { it.optString("uid") == currentUid }?.optString("role")
+        }.orEmpty()
+        val liveServiceAssigned = currentUid.isNotBlank() && liveAssignedRole.isNotBlank()
+        val liveRef = serviceId.takeIf { it.isNotBlank() && liveServiceAssigned }?.let {
+            com.example.syncedn.data.database.LiveSongSessionRepository.session(activeCode, it)
+        }
+        val liveController = liveServiceAssigned && (liveAssignedRole.contains("vocal", true) || liveAssignedRole.contains("singer", true) ||
+            liveAssignedRole.contains("choir", true) || liveAssignedRole.contains("worship leader", true) || liveAssignedRole.equals("leader", true))
+        var liveSessionData: Map<String, Any> = emptyMap()
+        var applyingLiveState = false
+        val liveCurrentUid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid
+            ?: preferences.getString("userId", "").orEmpty()
+        var followingAnotherController = false
+        var lastLiveScrollWrite = 0L
+        fun controlsLiveSession() = isLeader && !followingAnotherController
         val sheetText = text("", 13, navy).apply {
             if (showChords) typeface = Typeface.MONOSPACE
             includeFontPadding = true
             setLineSpacing(0f, 1.15f)
-            setTextIsSelectable(true)
+            setTextIsSelectable(false)
             isSingleLine = false
             setHorizontallyScrolling(false)
         }
-        sheetAutoScroll = SheetAutoScrollControls(
-            this@AdminActivity, preferences, selectedSong, col.parent as StableScrollView, sheetText
+        fun isLiveForSong() = liveSessionData["active"] == true && liveSessionData["songId"] == songId
+        fun liveSheetScrollBounds(scroll: StableScrollView): Pair<Int, Int> {
+            val sheetLocation = IntArray(2)
+            val scrollLocation = IntArray(2)
+            sheetText.getLocationInWindow(sheetLocation)
+            scroll.getLocationInWindow(scrollLocation)
+            val sheetTop = (sheetLocation[1] - scrollLocation[1] + scroll.scrollY).coerceAtLeast(0)
+            val maximum = ((scroll.getChildAt(0)?.height ?: 0) - scroll.height).coerceAtLeast(0)
+            val start = sheetTop.coerceIn(0, maximum)
+            val end = (sheetTop + sheetText.height - scroll.height).coerceIn(start, maximum)
+            return start to end
+        }
+        val liveStatus = text(
+            if (serviceId.isBlank()) "Open this song from a service lineup to enable team sync."
+            else if (!liveServiceAssigned) "Live sync is available only to members assigned to this service."
+            else if (liveController) "Ready · Start live to share this song with the team."
+            else "Waiting for the worship leader or vocalist to start.",
+            12, Color.rgb(105, 91, 157)
         )
+        val liveKeyAction = memberButton("Change shared key", navy) { }
+        val liveStartAction = memberButton("Start live", purple) { }
+        val liveStopAction = memberButton("End live", Color.rgb(94, 88, 116)) { }
+        val key = text("", 13, purple, true)
         val keyButtons = mutableListOf<Pair<Int, TextView>>()
         fun renderTarget(target: Int) {
             offset = (target - basePitch + 12) % 12
@@ -6246,6 +6369,9 @@ class AdminActivity : AppCompatActivity() {
                 button.isSelected = selected
             }
             preferences.edit().putInt("chord_transpose_$selectedSong", offset).apply()
+            if (isLiveForSong() && controlsLiveSession() && !applyingLiveState) {
+                liveRef?.update(mapOf("key" to root + if (minor) "m" else "", "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
+            }
         }
         if (isLeader) {
             col.add(memberButton("Edit Song", navy) { navigate("songEdit") }, -1, 48); col.space(16)
@@ -6291,6 +6417,86 @@ class AdminActivity : AppCompatActivity() {
                 }, -1, 36)
             }
         }); col.space(24)
+        liveKeyAction.setOnClickListener {
+            AlertDialog.Builder(this@AdminActivity).setTitle("Change shared song key")
+                .setSingleChoiceItems(roots.map { it + if (minor) "m" else "" }.toTypedArray(), (basePitch + offset) % 12) { dialog, position ->
+                    renderTarget(position); dialog.dismiss()
+                }.setNeutralButton("Original") { _, _ -> renderTarget(basePitch) }
+                .setNegativeButton("Cancel", null).show()
+        }
+        liveStartAction.setOnClickListener {
+            if (liveRef == null) { toast("Open this song from a service lineup to sync the team."); return@setOnClickListener }
+            val root = roots[(basePitch + offset) % 12]
+            val sessionData = mapOf(
+                "teamCode" to activeCode, "serviceId" to serviceId, "active" to true,
+                "songId" to songId, "songTitle" to selectedSong,
+                "controllerUid" to liveCurrentUid,
+                "controllerName" to preferences.getString("username", "Leader").orEmpty(),
+                "controllerPlatform" to "android",
+                "key" to root + if (minor) "m" else "", "scrollRatio" to 0.0,
+                "scrolling" to false, "scrollSpeed" to 35,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            liveRef.set(sessionData, com.google.firebase.firestore.SetOptions.merge())
+                .addOnFailureListener { toast("Live sync could not start: ${it.message ?: "Check your team access."}") }
+        }
+        liveStopAction.setOnClickListener {
+            if (liveRef != null) liveRef.update(mapOf("active" to false, "scrolling" to false, "updatedAt" to System.currentTimeMillis()))
+                .addOnFailureListener { toast("Live sync could not stop: ${it.message ?: "Try again."}") }
+        }
+        if (liveRef != null) {
+            val liveScrollView = col.parent as StableScrollView
+            liveSessionListener = liveRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    liveStatus.text = if ((error as? com.google.firebase.firestore.FirebaseFirestoreException)?.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED)
+                        "Live access denied. Save this service lineup again, then reopen the song."
+                    else "Live sync unavailable. Check your internet connection and try again."
+                    return@addSnapshotListener
+                }
+                liveSessionData = snapshot?.data ?: emptyMap()
+                val active = liveSessionData["active"] == true
+                val activeSong = liveSessionData["songId"]?.toString().orEmpty()
+                val sessionControllerUid = liveSessionData["controllerUid"]?.toString().orEmpty()
+                followingAnotherController = active && activeSong == songId && sessionControllerUid.isNotBlank() && sessionControllerUid != liveCurrentUid
+                sheetAutoScroll?.setLiveSyncActive(active && activeSong == songId)
+                liveStatus.text = when {
+                    active && activeSong == songId -> if (followingAnotherController) "LIVE · Following ${liveSessionData["controllerName"]?.toString().orEmpty().ifBlank { "the live controller" }}." else "LIVE · You control the shared lyrics and chords."
+                    active -> "LIVE · ${liveSessionData["songTitle"]?.toString().orEmpty()} is currently playing."
+                    else -> "Ready · Start live to share this song with the team."
+                }
+                liveKeyAction.visibility = if (controlsLiveSession()) View.VISIBLE else View.GONE
+                liveStartAction.visibility = if (controlsLiveSession() && !(active && activeSong == songId)) View.VISIBLE else View.GONE
+                liveStopAction.visibility = if (controlsLiveSession() && active && activeSong == songId) View.VISIBLE else View.GONE
+                val remoteKey = liveSessionData["key"]?.toString().orEmpty()
+                val currentKey = roots[(basePitch + offset) % 12] + if (minor) "m" else ""
+                if (active && activeSong == songId && remoteKey.isNotBlank() && remoteKey != currentKey) {
+                    val remotePitch = ChordSheet.keyPitch(remoteKey)
+                    if (remotePitch >= 0) { applyingLiveState = true; renderTarget(remotePitch); applyingLiveState = false }
+                }
+                if (active && activeSong == songId && !controlsLiveSession()) {
+                    val ratio = (liveSessionData["scrollRatio"] as? Number)?.toFloat()?.coerceIn(0f, 1f) ?: 0f
+                    liveScrollView.post {
+                        val (startY, endY) = liveSheetScrollBounds(liveScrollView)
+                        val targetY = (startY + ratio * (endY - startY)).toInt()
+                        if (kotlin.math.abs(liveScrollView.scrollY - targetY) > dp(12)) {
+                            applyingLiveState = true; liveScrollView.smoothScrollTo(0, targetY)
+                            liveScrollView.postDelayed({ applyingLiveState = false }, 220)
+                        }
+                    }
+                }
+            }
+            liveScrollView.setOnScrollChangeListener { view: View, _: Int, scrollY: Int, _: Int, _: Int ->
+                if (!controlsLiveSession() || applyingLiveState || !isLiveForSong()) return@setOnScrollChangeListener
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastLiveScrollWrite < 450) return@setOnScrollChangeListener
+                lastLiveScrollWrite = now
+                val scroll = view as StableScrollView
+                val (startY, endY) = liveSheetScrollBounds(scroll)
+                val range = endY - startY
+                val ratio = if (range == 0) 0.0 else ((scrollY - startY).toDouble() / range).coerceIn(0.0, 1.0)
+                liveRef.update(mapOf("scrollRatio" to ratio, "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
+            }
+        }
         col.add(panel().apply {
             val metronome = MetronomeView(this@AdminActivity, preferences, selectedSong, tempo.toIntOrNull() ?: 74)
             songMetronome = metronome
@@ -6309,10 +6515,18 @@ class AdminActivity : AppCompatActivity() {
             col.space(12)
         }
 
-        col.add(text(if(showChords) "Lyrics & Chords Sheet" else "Lyrics", 13, navy, true)); col.space(10)
         col.add(panel().apply {
-            add(sheetText, -1, -2)
-        }); col.space(24)
+            add(text("LIVE TEAM SYNC", 10, purple, true)); space(6); add(liveStatus); space(10)
+            if (liveController && liveRef != null) {
+                add(horizontal().apply { add(liveKeyAction, 0, 42, 1f); add(liveStartAction, 0, 42, 1f) })
+                space(8); add(liveStopAction, -1, 42)
+            }
+        }); col.space(12)
+        col.add(text(if(showChords) "Lyrics & Chords Sheet" else "Lyrics", 13, navy, true)); col.space(10)
+        col.add(panel().apply { add(sheetText, -1, -2) }); col.space(24)
+        sheetAutoScroll = SheetAutoScrollControls(this@AdminActivity, preferences, selectedSong,
+            col.parent as StableScrollView, sheetText)
+        sheetAutoScroll?.setLiveSyncActive(isLiveForSong())
         renderTarget((basePitch + offset) % 12)
         col.add(text("Reference Link", 13, navy, true)); col.space(8)
         val reference = currentSong?.referenceUrl.orEmpty().ifBlank { savedSong.optString("link") }
@@ -6385,7 +6599,7 @@ class AdminActivity : AppCompatActivity() {
             contentDescription = if (page == "teamDetails") "Back to Teams" else "Back to Home"
             isFocusable = true
         }, 40, 48)
-        row.add(image("team_header_badge", "Team badge"), 56, 56)
+        row.add(image("syncedm_brand_mark", "Team badge"), 56, 56)
         val currentCode = preferences.getString("teamCode", "").orEmpty()
             .ifBlank { FirestoreManager.findCodeByTeamName(teamName).orEmpty() }
         val subtitleText = if (currentCode.isNotBlank()) "Music Ministry • Code: $currentCode" else "Music Ministry"
@@ -6418,8 +6632,8 @@ class AdminActivity : AppCompatActivity() {
             addView(tab, LinearLayout.LayoutParams(0, dp(32), 1f).apply { rightMargin = dp(8) })
         }
     }
-    private fun teamLogo(): View = image("team_brand_logo", "SyncedM").apply {
-        // Supplied transparent white/gold logo: draw directly, without a color filter.
+    private fun teamLogo(): View = image("syncedm_brand_mark", "SyncedM").apply {
+        // Brand artwork includes its navy background; draw it without a color filter.
         scaleType = ImageView.ScaleType.FIT_CENTER
         background = null
         setPadding(0, 0, 0, 0)
@@ -6809,7 +7023,7 @@ class AdminActivity : AppCompatActivity() {
             "Members" -> {
                 val roster = getActiveRoster()
                 roster.forEach { member ->
-                    val name = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+                    val name = member.displayName
                     val isLeaderBadge = member.role.equals("Leader", ignoreCase = true) ||
                                         member.ministryRole.equals("Worship Leader", ignoreCase = true) ||
                                         (member.ministryRole.equals("Substitute Leader", ignoreCase = true) && !member.role.equals("Member", true)) ||
@@ -6883,7 +7097,7 @@ class AdminActivity : AppCompatActivity() {
                                 add(text("No members assigned to this role yet", 13, Color.LTGRAY))
                             } else {
                                 people.forEach { member ->
-                                    val memberName = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+                                    val memberName = member.displayName
                                     add(horizontal().apply {
                                         setPadding(0, dp(8), 0, dp(8))
                                         if (isLeader) setOnClickListener {
@@ -7464,7 +7678,7 @@ class AdminActivity : AppCompatActivity() {
                     sheetCol.space(16)
                 } else {
                     roster.forEach { member ->
-                        val mName = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+                        val mName = member.displayName
                         val mRole = member.ministryRole.ifBlank { "Member" }
                         val memberRow = horizontal().apply {
                             gravity = Gravity.CENTER_VERTICAL

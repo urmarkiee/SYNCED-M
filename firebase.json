@@ -16,6 +16,7 @@
     }
   },
   "hosting": {
+    "site": "synedn",
     "public": "web",
     "ignore": [
       "firebase.json",

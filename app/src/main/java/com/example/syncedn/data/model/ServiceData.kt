@@ -28,6 +28,10 @@ data class ServiceData(
         "status" to status,
         "coverImageUrl" to coverImageUrl,
         "assignments" to assignments.map { it.toMap() },
+        "assignedMemberUids" to assignments.map { it.uid.trim() }.filter { it.isNotBlank() }.distinct(),
+        "liveControllerUids" to assignments.filter { assignment ->
+            assignment.uid.isNotBlank() && Regex("(?i)\\b(worship leader|leader|vocal\\w*|sing\\w*|choir|chorus|voice)\\b").containsMatchIn(assignment.role)
+        }.map { it.uid.trim() }.distinct(),
         "rehearsal" to rehearsal.toMap(),
         "songs" to songs.map { it.toMap() },
         "createdBy" to createdBy,

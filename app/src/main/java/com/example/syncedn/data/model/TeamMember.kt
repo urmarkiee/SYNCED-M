@@ -17,6 +17,13 @@ data class TeamMember(
     val joinedAt: Long = System.currentTimeMillis(),
     val removedByLeader: Boolean = false
 ) {
+    /** Name to show in roster UI, preferring actual names over generic role labels. */
+    val displayName: String
+        get() = sequenceOf(fullName, username, email.substringBefore('@'))
+            .map(String::trim)
+            .firstOrNull { it.isNotBlank() && !it.equals("Member", ignoreCase = true) && !it.equals("User", ignoreCase = true) }
+            ?: "Member"
+
     fun toMap(): Map<String, Any> = mapOf(
         "uid" to uid,
         "fullName" to fullName,
@@ -34,11 +41,24 @@ data class TeamMember(
     companion object {
         fun fromMap(map: Map<String, Any?>): TeamMember {
             val ranges = UnavailableRange.parseList(map["unavailableRanges"])
+            // Older web and Android builds have used slightly different profile name keys.
+            // Read them all so an older profile still displays its real name in the roster.
+            fun string(vararg keys: String): String = keys
+                .asSequence()
+                .mapNotNull { key -> map[key] as? String }
+                .map(String::trim)
+                .firstOrNull { it.isNotBlank() }
+                .orEmpty()
+            val username = string("username", "userName", "displayName", "display_name")
+            val rawFullName = string("fullName", "full_name", "name", "displayName", "display_name")
+            val fullName = if (rawFullName.equals("Member", ignoreCase = true) || rawFullName.equals("User", ignoreCase = true)) {
+                username.ifBlank { rawFullName }
+            } else rawFullName
 
             return TeamMember(
                 uid = map["uid"] as? String ?: "",
-                fullName = map["fullName"] as? String ?: "",
-                username = map["username"] as? String ?: "",
+                fullName = fullName,
+                username = username,
                 email = map["email"] as? String ?: "",
                 role = map["role"] as? String ?: "Member",
                 ministryRole = map["ministryRole"] as? String ?: "",

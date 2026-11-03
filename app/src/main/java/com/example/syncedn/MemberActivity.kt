@@ -148,6 +148,9 @@ open class MemberActivity : AppCompatActivity() {
     private var substitutionsListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var rosterListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var userMembershipListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveSessionListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveServiceObserver: com.google.firebase.firestore.ListenerRegistration? = null
+    private var liveAutoOpenSongId = ""
     private val chatScrollRunnable = Runnable { chatScrollView?.fullScroll(View.FOCUS_DOWN) }
     protected open val initialPage: String = "home"
     private var page = "start"
@@ -643,6 +646,7 @@ open class MemberActivity : AppCompatActivity() {
             state.getStringArrayList("lineupSongs")?.let { lineupSongs.clear(); lineupSongs.addAll(it) }
         }
         navigate(savedInstanceState?.getString("page") ?: intent.getStringExtra("startPage") ?: initialPage)
+        selectedSheetService?.let(::observeLiveService)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (page == "home") {
@@ -680,6 +684,12 @@ open class MemberActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        sheetAutoScroll?.close()
+        sheetAutoScroll = null
+        liveSessionListener?.remove()
+        liveSessionListener = null
+        liveServiceObserver?.remove()
+        liveServiceObserver = null
         servicesListener?.remove()
         servicesListener = null
         substitutionsListener?.remove()
@@ -733,6 +743,10 @@ open class MemberActivity : AppCompatActivity() {
     }
 
     protected open fun navigate(next: String, triggerRefresh: Boolean) {
+        if (next != "songDetails") {
+            liveSessionListener?.remove()
+            liveSessionListener = null
+        }
         val isLeadUser = preferences.getString("email", "").orEmpty().trim().lowercase() == "\u0000"
         val myTeam = preferences.getString("teamName", "").orEmpty()
         val teamCode = preferences.getString("teamCode", "").orEmpty()
@@ -764,10 +778,10 @@ open class MemberActivity : AppCompatActivity() {
             finish()
             return
         }
-        sheetAutoScroll?.close()
-        sheetAutoScroll = null
         songMetronome?.close()
         songMetronome = null
+        sheetAutoScroll?.close()
+        sheetAutoScroll = null
         page = effectiveNext
         homeMemberCount = null
         val root = buildScreen(page)
@@ -881,7 +895,7 @@ open class MemberActivity : AppCompatActivity() {
                         toast("Your sign-in session expired. Sign in again before requesting to rejoin.")
                         return@click
                     }
-                    val emailStr = authenticatedUser.email.orEmpty()
+                    val emailStr = authenticatedUser?.email.orEmpty()
                         .ifBlank { preferences.getString("email", "").orEmpty() }
 
                     TeamRepository.isMemberRemovedFromTeam(enteredCode, uid) { isRemoved ->
@@ -1290,7 +1304,7 @@ open class MemberActivity : AppCompatActivity() {
                     }
                     BitmapFactory.decodeResource(resources, resId, bounds)
                     val maxSide = when (name) {
-                        "profile_photo", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
+                        "profile_photo", "syncedm_brand_mark", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
                         else -> 900
                     }
                     var sample = 1
@@ -1317,7 +1331,7 @@ open class MemberActivity : AppCompatActivity() {
                     }
                     BitmapFactory.decodeResource(resources, resId, bounds)
                     val maxSide = when (name) {
-                        "profile_photo", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
+                        "profile_photo", "syncedm_brand_mark", "team_brand_logo", "team_header_badge", "landing_logo" -> 320
                         else -> 900
                     }
                     var sample = 1
@@ -1575,7 +1589,7 @@ open class MemberActivity : AppCompatActivity() {
         scroll.addView(col, FrameLayout.LayoutParams(-1, -2))
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
         val brandRow = horizontal().apply { setPadding(dp(24), dp(52), dp(24), dp(16)) }
-        brandRow.add(image("synced_n_logo_sharp", "SyncedM music logo"), 54, 54)
+        brandRow.add(image("syncedm_brand_mark", "SyncedM music logo"), 54, 54)
         brandRow.add(View(this), 12, 1)
         brandRow.add(vertical().apply {
             add(text("SyncedM", 22, navy, true))
@@ -2066,7 +2080,7 @@ open class MemberActivity : AppCompatActivity() {
         hero.topContentHeightDp = 190
         val top=vertical().apply { setPadding(dp(24),dp(24),dp(24),0) }
         val row=horizontal()
-        row.add(image("synced_n_logo_sharp", "SyncedM music logo"),42,42)
+        row.add(image("syncedm_brand_mark", "SyncedM music logo"),42,42)
         row.add(View(this),12,1)
         val brand=vertical().apply {
             add(text("SyncedM",18,navy,true))
@@ -2294,7 +2308,7 @@ open class MemberActivity : AppCompatActivity() {
                 setPadding(dp(13),dp(32),dp(12),dp(12))
                 val titleRow=horizontal()
                 titleRow.add(ImageView(this@MemberActivity).apply {
-                    setImageResource(R.drawable.synced_n_logo_sharp)
+                    setImageResource(R.drawable.syncedm_brand_mark)
                     contentDescription = "SyncedM Ministry Team Logo"
                     scaleType = ImageView.ScaleType.FIT_CENTER
                 }, 50, 50)
@@ -2849,8 +2863,8 @@ space(48)
     private var teamTab = "Team Chat"
     private var expandedRole: String? = null
     private var selectedSong = "Trust in God"
-    private var sheetAutoScroll: SheetAutoScrollControls? = null
     private var songMetronome: MetronomeView? = null
+    private var sheetAutoScroll: SheetAutoScrollControls? = null
     private var songDetailsBack = "songs"
     private var selectedSheetService: org.json.JSONObject? = null
     private var selectedService = "Sunday Worship Service"
@@ -4931,6 +4945,7 @@ space(48)
     }
     private fun selectSheetService(record: org.json.JSONObject) {
         selectedSheetService = org.json.JSONObject(record.toString())
+        observeLiveService(record)
         record.optJSONArray("songs")?.let { songs ->
             lineupSongs.clear()
             repeat(songs.length()) { idx ->
@@ -4938,6 +4953,72 @@ space(48)
                 val unpacked = com.example.syncedn.data.model.ServiceSong.unpack(item)
                 if (unpacked.title.isNotBlank()) lineupSongs.add(unpacked.title)
             }
+        }
+    }
+
+    private fun observeLiveService(service: org.json.JSONObject) {
+        val serviceId = service.optString("id").trim()
+        val teamCode = preferences.getString("teamCode", "").orEmpty().trim().uppercase()
+        liveServiceObserver?.remove()
+        liveServiceObserver = null
+        liveAutoOpenSongId = ""
+        if (serviceId.isBlank() || teamCode.isBlank() || liveServiceAssignmentRole().isBlank()) return
+        val serviceSongs = service.optJSONArray("songs")
+        val assignedSongTitles = (0 until (serviceSongs?.length() ?: 0)).mapNotNull { index ->
+            val title = com.example.syncedn.data.model.ServiceSong.unpack(serviceSongs?.opt(index)).title.trim()
+            title.takeIf { it.isNotBlank() }
+        }
+        liveServiceObserver = com.example.syncedn.data.database.LiveSongSessionRepository
+            .session(teamCode, serviceId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.w("LiveSong", "Could not observe the selected service live session", error)
+                    return@addSnapshotListener
+                }
+                val data = snapshot?.data ?: return@addSnapshotListener
+                if (data["active"] != true) {
+                    liveAutoOpenSongId = ""
+                    return@addSnapshotListener
+                }
+                val targetSongId = data["songId"]?.toString().orEmpty()
+                if (targetSongId.isBlank() || targetSongId == liveAutoOpenSongId) return@addSnapshotListener
+                liveAutoOpenSongId = targetSongId
+                val songs = TeamRepository.getCachedSongs(teamCode, preferences)
+                val match = songs.firstOrNull { it.id == targetSongId || it.title.equals(data["songTitle"]?.toString(), true) }
+                if (match == null) {
+                    TeamRepository.getSongs(teamCode, forceRefresh = true, preferences = preferences) { result ->
+                        runOnUiThread {
+                            val refreshed = result.getOrNull().orEmpty().firstOrNull {
+                                it.id == targetSongId || it.title.equals(data["songTitle"]?.toString(), true)
+                            }
+                            if (refreshed == null) { liveAutoOpenSongId = ""; return@runOnUiThread }
+                            openLiveSongDetail(serviceId, targetSongId, refreshed.title, assignedSongTitles)
+                        }
+                    }
+                } else {
+                    openLiveSongDetail(serviceId, targetSongId, match.title, assignedSongTitles)
+                }
+            }
+    }
+
+    private fun openLiveSongDetail(serviceId: String, songId: String, title: String, assignedSongTitles: List<String>) {
+        runOnUiThread {
+            if (selectedSheetService?.optString("id") != serviceId || title.isBlank()) return@runOnUiThread
+            if (assignedSongTitles.isNotEmpty() && assignedSongTitles.none { it.equals(title, true) }) return@runOnUiThread
+            if (page == "songDetails" && selectedSong.equals(title, true)) {
+                liveAutoOpenSongId = songId
+                return@runOnUiThread
+            }
+            if (page !in listOf("home", "service", "schedule", "lineup", "songs", "songDetails")) return@runOnUiThread
+            if (page == "songDetails") {
+                liveSessionListener?.remove()
+                liveSessionListener = null
+            } else {
+                songDetailsBack = page
+            }
+            liveAutoOpenSongId = songId
+            selectedSong = title
+            navigate("songDetails")
         }
     }
     private fun songAssignedRoles(): String {
@@ -4974,6 +5055,20 @@ space(48)
             rows.find { it.first.trim().equals(identity.trim(),true) }?.second?.takeIf { it.isNotBlank() }
         }.orEmpty()
     }
+
+    private fun liveServiceAssignmentRole(): String {
+        val service = selectedSheetService ?: return ""
+        val uid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid
+            ?: preferences.getString("userId", "").orEmpty()
+        if (uid.isBlank()) return ""
+        val serviceId = service.optString("id")
+        val current = storedServices().firstOrNull { it.optString("id") == serviceId } ?: service
+        val assignments = current.optJSONArray("assignments") ?: return ""
+        return (0 until assignments.length()).firstNotNullOfOrNull { index ->
+            assignments.optJSONObject(index)?.takeIf { it.optString("uid") == uid }?.optString("role")
+        }.orEmpty()
+    }
+
     private fun songDetailsView(): View = memberPage("Song Details", songDetailsBack, footer = { sheetAutoScroll }) { col ->
         val activeCode = preferences.getString("teamCode", "").orEmpty()
         val currentSong = TeamRepository.getCachedSongs(activeCode, preferences).find { it.title.equals(selectedSong, ignoreCase = true) }
@@ -5003,18 +5098,56 @@ space(48)
         val showChords = hasChordsInSheet && !isVocalist
         val tempo = currentSong?.bpm?.toString() ?: savedSong.optString("bpm", "74")
         var offset = ((preferences.getInt("chord_transpose_$selectedSong", 0) % 12) + 12) % 12
-        val key = text("", 13, purple, true)
+        val serviceId = selectedSheetService?.optString("id").orEmpty()
+        val songId = currentSong?.id?.ifBlank { selectedSong } ?: selectedSong
+        val liveAssignedRole = liveServiceAssignmentRole()
+        val liveServiceAssigned = liveAssignedRole.isNotBlank()
+        val liveRef = serviceId.takeIf { it.isNotBlank() && liveServiceAssigned }?.let {
+            com.example.syncedn.data.database.LiveSongSessionRepository.session(activeCode, it)
+        }
+        val liveController = liveServiceAssigned && (liveAssignedRole.contains("vocal", true) || liveAssignedRole.contains("singer", true) ||
+            liveAssignedRole.contains("choir", true) || liveAssignedRole.contains("worship leader", true) || liveAssignedRole.equals("leader", true))
+        val liveCurrentUid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid
+            ?: preferences.getString("userId", "").orEmpty()
+        var liveSessionData: Map<String, Any> = emptyMap()
+        var applyingLiveState = false
+        var followingAnotherController = false
+        var lastLiveScrollWrite = 0L
+        fun controlsLiveSession() = liveController && !followingAnotherController
         val sheetText = text("", 13, navy).apply {
             if (showChords) typeface = Typeface.MONOSPACE
             includeFontPadding = true
             setLineSpacing(0f, 1.15f)
-            setTextIsSelectable(true)
+            setTextIsSelectable(false)
             isSingleLine = false
             setHorizontallyScrolling(false)
         }
-        sheetAutoScroll = SheetAutoScrollControls(
-            this@MemberActivity, preferences, selectedSong, col.parent as StableScrollView, sheetText
+        fun isLiveForSong() = liveSessionData["active"] == true && liveSessionData["songId"] == songId
+        fun liveSheetScrollBounds(scroll: StableScrollView): Pair<Int, Int> {
+            val sheetLocation = IntArray(2)
+            val scrollLocation = IntArray(2)
+            sheetText.getLocationInWindow(sheetLocation)
+            scroll.getLocationInWindow(scrollLocation)
+            val sheetTop = (sheetLocation[1] - scrollLocation[1] + scroll.scrollY).coerceAtLeast(0)
+            val maximum = ((scroll.getChildAt(0)?.height ?: 0) - scroll.height).coerceAtLeast(0)
+            val start = sheetTop.coerceIn(0, maximum)
+            val end = (sheetTop + sheetText.height - scroll.height).coerceIn(start, maximum)
+            return start to end
+        }
+        val liveStatus = text(
+            if (serviceId.isBlank()) "Open this song from a service lineup to enable team sync."
+            else if (!liveServiceAssigned) "Live sync is available only to members assigned to this service."
+            else if (liveController) "Ready · Start live to share this song with the team."
+            else "Waiting for the worship leader or vocalist to start.",
+            12, Color.rgb(105, 91, 157)
         )
+        val liveKeyAction = memberButton("Change shared key", navy) { }
+        val liveStartAction = memberButton("Start live", purple) { }
+        val liveStopAction = memberButton("End live", Color.rgb(94, 88, 116)) { }
+        liveKeyAction.visibility = if (liveController) View.VISIBLE else View.GONE
+        liveStartAction.visibility = if (liveController && liveRef != null) View.VISIBLE else View.GONE
+        liveStopAction.visibility = View.GONE
+        val key = text("", 13, purple, true)
         val keyButtons = mutableListOf<Pair<Int, TextView>>()
         fun renderTarget(target: Int) {
             offset = (target - basePitch + 12) % 12
@@ -5028,6 +5161,9 @@ space(48)
                 button.isSelected = selected
             }
             preferences.edit().putInt("chord_transpose_$selectedSong", offset).apply()
+            if (isLiveForSong() && controlsLiveSession() && !applyingLiveState) {
+                liveRef?.update(mapOf("key" to root + if (minor) "m" else "", "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
+            }
         }
         
         col.add(panel().apply {
@@ -5071,6 +5207,89 @@ space(48)
                 }, -1, 36)
             }
         }); col.space(24)
+        liveKeyAction.setOnClickListener {
+            if (!controlsLiveSession()) return@setOnClickListener
+            AlertDialog.Builder(this@MemberActivity).setTitle("Change shared song key")
+                .setSingleChoiceItems(roots.map { it + if (minor) "m" else "" }.toTypedArray(), (basePitch + offset) % 12) { dialog, position ->
+                    renderTarget(position); dialog.dismiss()
+                }.setNeutralButton("Original") { _, _ -> renderTarget(basePitch) }
+                .setNegativeButton("Cancel", null).show()
+        }
+        liveStartAction.setOnClickListener {
+            if (!controlsLiveSession()) { toast("Only the worship leader or vocalist can start live sync."); return@setOnClickListener }
+            if (liveRef == null) { toast("Open this song from a service lineup to sync the team."); return@setOnClickListener }
+            val root = roots[(basePitch + offset) % 12]
+            val sessionData = mapOf(
+                "teamCode" to activeCode, "serviceId" to serviceId, "active" to true,
+                "songId" to songId, "songTitle" to selectedSong,
+                "controllerUid" to liveCurrentUid,
+                "controllerName" to preferences.getString("username", displayName).orEmpty(),
+                "controllerPlatform" to "android",
+                "key" to root + if (minor) "m" else "", "scrollRatio" to 0.0,
+                "scrolling" to false, "scrollSpeed" to 35,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            liveRef.set(sessionData, com.google.firebase.firestore.SetOptions.merge())
+                .addOnFailureListener { toast("Live sync could not start: ${it.message ?: "Check your team access."}") }
+        }
+        liveStopAction.setOnClickListener {
+            if (controlsLiveSession() && liveRef != null) liveRef.update(mapOf("active" to false, "scrolling" to false, "updatedAt" to System.currentTimeMillis()))
+                .addOnFailureListener { toast("Live sync could not stop: ${it.message ?: "Try again."}") }
+        }
+        if (liveRef != null) {
+            val liveScrollView = col.parent as StableScrollView
+            liveSessionListener = liveRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    liveStatus.text = if ((error as? com.google.firebase.firestore.FirebaseFirestoreException)?.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED)
+                        "Live access denied. Ask the service leader to save the lineup again, then reopen this song."
+                    else "Live sync unavailable. Check your internet connection and try again."
+                    return@addSnapshotListener
+                }
+                liveSessionData = snapshot?.data ?: emptyMap()
+                val active = liveSessionData["active"] == true
+                val activeSong = liveSessionData["songId"]?.toString().orEmpty()
+                val sessionControllerUid = liveSessionData["controllerUid"]?.toString().orEmpty()
+                followingAnotherController = active && activeSong == songId && sessionControllerUid.isNotBlank() && sessionControllerUid != liveCurrentUid
+                sheetAutoScroll?.setLiveSyncActive(active && activeSong == songId)
+                liveStatus.text = when {
+                    active && activeSong == songId -> if (controlsLiveSession()) "LIVE · You control the shared lyrics and chords." else "LIVE · Following ${liveSessionData["controllerName"]?.toString().orEmpty().ifBlank { "your worship leader" }}."
+                    active -> "LIVE · ${liveSessionData["songTitle"]?.toString().orEmpty()} is currently playing."
+                    liveController -> "Ready · Start live to share this song with the team."
+                    else -> "Waiting for the worship leader or vocalist to start."
+                }
+                liveKeyAction.visibility = if (controlsLiveSession()) View.VISIBLE else View.GONE
+                liveStartAction.visibility = if (controlsLiveSession() && !(active && activeSong == songId)) View.VISIBLE else View.GONE
+                liveStopAction.visibility = if (controlsLiveSession() && active && activeSong == songId) View.VISIBLE else View.GONE
+                val remoteKey = liveSessionData["key"]?.toString().orEmpty()
+                val currentKey = roots[(basePitch + offset) % 12] + if (minor) "m" else ""
+                if (active && activeSong == songId && remoteKey.isNotBlank() && remoteKey != currentKey) {
+                    val remotePitch = ChordSheet.keyPitch(remoteKey)
+                    if (remotePitch >= 0) { applyingLiveState = true; renderTarget(remotePitch); applyingLiveState = false }
+                }
+                if (active && activeSong == songId && !controlsLiveSession()) {
+                    val ratio = (liveSessionData["scrollRatio"] as? Number)?.toFloat()?.coerceIn(0f, 1f) ?: 0f
+                    liveScrollView.post {
+                        val (startY, endY) = liveSheetScrollBounds(liveScrollView)
+                        val targetY = (startY + ratio * (endY - startY)).toInt()
+                        if (kotlin.math.abs(liveScrollView.scrollY - targetY) > dp(12)) {
+                            applyingLiveState = true; liveScrollView.smoothScrollTo(0, targetY)
+                            liveScrollView.postDelayed({ applyingLiveState = false }, 220)
+                        }
+                    }
+                }
+            }
+            liveScrollView.setOnScrollChangeListener { view: View, _: Int, scrollY: Int, _: Int, _: Int ->
+                if (!controlsLiveSession() || applyingLiveState || !isLiveForSong()) return@setOnScrollChangeListener
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastLiveScrollWrite < 450) return@setOnScrollChangeListener
+                lastLiveScrollWrite = now
+                val scroll = view as StableScrollView
+                val (startY, endY) = liveSheetScrollBounds(scroll)
+                val range = endY - startY
+                val ratio = if (range == 0) 0.0 else ((scrollY - startY).toDouble() / range).coerceIn(0.0, 1.0)
+                liveRef.update(mapOf("scrollRatio" to ratio, "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
+            }
+        }
         col.add(panel().apply {
             val metronome = MetronomeView(this@MemberActivity, preferences, selectedSong, tempo.toIntOrNull() ?: 74)
             songMetronome = metronome
@@ -5089,10 +5308,18 @@ space(48)
             col.space(12)
         }
 
-        col.add(text(if(showChords) "Lyrics & Chords Sheet" else "Lyrics", 13, navy, true)); col.space(10)
         col.add(panel().apply {
-            add(sheetText, -1, -2)
-        }); col.space(24)
+            add(text("LIVE TEAM SYNC", 10, purple, true)); space(6); add(liveStatus); space(10)
+            if (liveController && liveRef != null) {
+                add(horizontal().apply { add(liveKeyAction, 0, 42, 1f); add(liveStartAction, 0, 42, 1f) })
+                space(8); add(liveStopAction, -1, 42)
+            }
+        }); col.space(12)
+        col.add(text(if(showChords) "Lyrics & Chords Sheet" else "Lyrics", 13, navy, true)); col.space(10)
+        col.add(panel().apply { add(sheetText, -1, -2) }); col.space(24)
+        sheetAutoScroll = SheetAutoScrollControls(this@MemberActivity, preferences, selectedSong,
+            col.parent as StableScrollView, sheetText)
+        sheetAutoScroll?.setLiveSyncActive(isLiveForSong())
         renderTarget((basePitch + offset) % 12)
         col.add(text("Reference Link", 13, navy, true)); col.space(8)
         val reference = currentSong?.referenceUrl.orEmpty().ifBlank { savedSong.optString("link") }
@@ -5210,7 +5437,7 @@ space(48)
             contentDescription = if (page == "teamDetails") "Back to Teams" else "Back to Home"
             isFocusable = true
         }, 40, 48)
-        row.add(image("team_header_badge", "Team badge"), 56, 56)
+        row.add(image("syncedm_brand_mark", "Team badge"), 56, 56)
         row.add(vertical().apply {
             setPadding(dp(12), 0, dp(8), 0)
             add(text(teamName.ifBlank { "Worship Team" }, 14, Color.WHITE, true).apply {
@@ -5240,8 +5467,8 @@ space(48)
             addView(tab, LinearLayout.LayoutParams(0, dp(32), 1f).apply { rightMargin = dp(8) })
         }
     }
-    private fun teamLogo(): View = image("team_brand_logo", "SyncedM").apply {
-        // Supplied transparent white/gold logo: draw directly, without a color filter.
+    private fun teamLogo(): View = image("syncedm_brand_mark", "SyncedM").apply {
+        // Brand artwork includes its navy background; draw it without a color filter.
         scaleType = ImageView.ScaleType.FIT_CENTER
         background = null
         setPadding(0, 0, 0, 0)
@@ -5604,7 +5831,7 @@ space(48)
             "Members" -> {
                 val roster = getActiveRoster()
                 roster.forEach { member ->
-                    val name = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+                    val name = member.displayName
                     val isLeaderBadge = member.role.equals("Leader", ignoreCase = true) ||
                                         member.ministryRole.equals("Worship Leader", ignoreCase = true) ||
                                         (member.ministryRole.equals("Substitute Leader", ignoreCase = true) && !member.role.equals("Member", true)) ||
@@ -5667,7 +5894,7 @@ space(48)
                                 add(text("No members assigned to this role yet", 13, Color.LTGRAY))
                             } else {
                                 people.forEach { member ->
-                                    val memberName = member.fullName.ifBlank { member.username.ifBlank { "Member" } }
+                                    val memberName = member.displayName
                                     add(horizontal().apply {
                                         setPadding(0, dp(8), 0, dp(8))
                                         val pUri = member.photoUri.ifBlank {

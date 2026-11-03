@@ -4,7 +4,12 @@ This clone is connected to Firebase project `synedn`.
 
 - Android application: `com.example.syncedn`
 - Firebase Android App ID: `1:811884997432:android:85c910e2591bca405cafcd`
+- Firebase Web App: `SyncedM Web` (`1:811884997432:web:8990a1ab309505785cafcd`)
 - Firestore: Standard edition, `(default)` database, Singapore (`asia-southeast1`), with deletion protection enabled
+
+The `web/` browser companion uses the same Firebase Authentication accounts and Firestore team collections as Android. It supports email/password and Google sign-in, team onboarding, live service/song/announcement/roster views, and leader-only creation actions enforced by the existing Firestore rules. Its public Firebase web config is in `web/firebase-config.js`; no service-account credentials are used in the browser.
+
+For local browser development, serve `web/` on `http://localhost:5173` and authorize `localhost` in Firebase Authentication if Google sign-in asks for it. The root `firebase.json` includes Hosting configuration for `web/`; publish it separately with `npx -y firebase-tools@latest deploy --only hosting --project synedn` after reviewing the local version.
 
 The app's existing Firebase Authentication and Firestore SDK dependencies are retained. Password recovery now uses Firebase Authentication's email reset link. The client no longer writes passwords to Firestore or contains the old Brevo API key. The new Firestore database is empty; no account or team data was migrated.
 
