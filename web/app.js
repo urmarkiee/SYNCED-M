@@ -924,29 +924,30 @@ function editAnnouncement(announcement) {
 
 async function createTeam(teamName, requestedCode = "") {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = clean(requestedCode).toUpperCase();
-  if (code && !/^[A-Z0-9]{6}$/.test(code)) throw new Error("Use exactly six letters or numbers for a custom invite code.");
-  if (code) {
-    if ((await getDoc(doc(db, "teams", code))).exists()) throw new Error("That invite code is already in use. Choose another one.");
-  } else {
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const bytes = crypto.getRandomValues(new Uint8Array(6));
-      code = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
-      if (!(await getDoc(doc(db, "teams", code))).exists()) break;
-      code = "";
+  const customCode = clean(requestedCode).toUpperCase();
+  if (customCode && !/^[A-Z0-9]{6}$/.test(customCode)) throw new Error("Use exactly six letters or numbers for a custom invite code.");
+  const name = clean(teamName).slice(0, 100);
+  let code = "";
+  for (let attempt = 0; attempt < (customCode ? 1 : 12); attempt++) {
+    const bytes = crypto.getRandomValues(new Uint8Array(6));
+    const candidate = customCode || [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+    try {
+      await setDoc(doc(db, "teams", candidate), {
+        teamCode: candidate,
+        teamName: name,
+        leaderUid: state.user.uid,
+        leaderName: displayName().slice(0, 100),
+        roles: ["Worship Leader", "Substitute Leader", "Vocalist", "Guitarist", "Keyboardist", "Bassist", "Drummer", "Sound Operator"],
+        removedMembers: [],
+        createdAt: Date.now()
+      });
+      code = candidate;
+      break;
+    } catch (error) {
+      if (customCode) throw new Error("That invite code is already in use or unavailable. Choose another one.");
     }
   }
   if (!code) throw new Error("Could not find an available team code. Please try again.");
-  const name = clean(teamName).slice(0, 100);
-  await setDoc(doc(db, "teams", code), {
-    teamCode: code,
-    teamName: name,
-    leaderUid: state.user.uid,
-    leaderName: displayName().slice(0, 100),
-    roles: ["Worship Leader", "Substitute Leader", "Vocalist", "Guitarist", "Keyboardist", "Bassist", "Drummer", "Sound Operator"],
-    removedMembers: [],
-    createdAt: Date.now()
-  });
   await updateDoc(doc(db, "users", state.user.uid), { teamCode: code, teamName: name, role: "Leader", removedByLeader: false, removedTeamCode: "" });
   state.profile = { ...state.profile, teamCode: code, teamName: name, role: "Leader", removedByLeader: false, removedTeamCode: "" };
   await initializeSignedInWorkspace(state.user);
@@ -956,23 +957,26 @@ async function createTeam(teamName, requestedCode = "") {
 async function joinTeam(codeInput) {
   const code = clean(codeInput).toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(code)) throw new Error("Enter the six-character team invite code.");
-  const teamSnapshot = await getDoc(doc(db, "teams", code));
-  if (!teamSnapshot.exists()) throw new Error("No team was found with that invite code.");
-  const team = teamSnapshot.data();
-  if (team.leaderUid !== state.user.uid && state.profile.removedByLeader === true && state.profile.removedTeamCode === code) {
+  if (state.profile.removedByLeader === true && state.profile.removedTeamCode === code) {
     throw new Error("Your previous team needs to approve your rejoin request.");
   }
   await updateDoc(doc(db, "users", state.user.uid), {
     teamCode: code,
-    teamName: String(team.teamName || "").slice(0, 100),
-    role: team.leaderUid === state.user.uid ? "Leader" : "Member",
+    teamName: "",
+    role: "Member",
     removedByLeader: false,
     removedTeamCode: "",
     joinedAt: Date.now()
   });
-  state.profile = { ...state.profile, teamCode: code, teamName: team.teamName, role: team.leaderUid === state.user.uid ? "Leader" : "Member", removedByLeader: false, removedTeamCode: "", joinedAt: Date.now() };
+  const teamSnapshot = await getDoc(doc(db, "teams", code));
+  if (!teamSnapshot.exists()) throw new Error("That invite code is no longer available.");
+  const team = teamSnapshot.data();
+  const role = team.leaderUid === state.user.uid ? "Leader" : "Member";
+  const teamName = String(team.teamName || "").slice(0, 100);
+  await updateDoc(doc(db, "users", state.user.uid), { teamName, role });
+  state.profile = { ...state.profile, teamCode: code, teamName, role, removedByLeader: false, removedTeamCode: "", joinedAt: Date.now() };
   await initializeSignedInWorkspace(state.user);
-  toast(`You joined ${team.teamName}.`, "success");
+  toast(`You joined ${teamName}.`, "success");
 }
 
 function showRegisterMode(register) {

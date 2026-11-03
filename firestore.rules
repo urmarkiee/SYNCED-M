@@ -221,6 +221,54 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedTeamCode == teamCode;
     }
 
+    function teamPath(teamCode) {
+      return /databases/$(database)/documents/teams/$(teamCode);
+    }
+
+    function isValidJoinTarget(userId) {
+      let code = request.resource.data.teamCode;
+      return isOwner(userId) && code is string && code.matches('^[A-Z0-9]{6}$') &&
+        request.resource.data.teamName == '' &&
+        request.resource.data.role in ['Member', 'Leader'] &&
+        (!('removedByLeader' in request.resource.data) || request.resource.data.removedByLeader == false) &&
+        (!('removedTeamCode' in request.resource.data) || request.resource.data.removedTeamCode == '') &&
+        exists(teamPath(code)) &&
+        (request.resource.data.role == 'Member' || get(teamPath(code)).data.leaderUid == request.auth.uid);
+    }
+
+    function isValidSelfJoinCreate(userId) {
+      return isValidJoinTarget(userId);
+    }
+
+    function isValidSelfJoinUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isValidJoinTarget(userId) &&
+        (!('teamCode' in resource.data) || resource.data.teamCode == '') &&
+        (!('removedByLeader' in resource.data) || resource.data.removedByLeader == false) &&
+        changed.hasOnly(['teamCode', 'teamName', 'role', 'removedByLeader', 'removedTeamCode', 'joinedAt']);
+    }
+
+    function isOwnTeamNameRefresh(userId) {
+      let code = request.resource.data.teamCode;
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isOwner(userId) && code is string && changed.hasOnly(['teamName']) &&
+        isSameTeam(code) && request.resource.data.teamName is string &&
+        request.resource.data.teamName == get(teamPath(code)).data.teamName;
+    }
+
+    function isValidOwnerUserUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let membershipFields = ['role', 'teamName', 'teamCode', 'removedByLeader', 'removedTeamCode', 'joinedAt'];
+      return isOwner(userId) && isValidUser(request.resource.data, userId) &&
+        areImmutableFieldsUnchanged(['uid', 'createdAt', 'email']) &&
+        (!changed.hasAny(membershipFields) || isValidSelfJoinUpdate(userId) ||
+          isOwnTeamNameRefresh(userId) || isLeaderOfTeam(resource.data.teamCode) ||
+          isLeaderOfTeam(request.resource.data.teamCode)) &&
+        (!changed.hasAny(['role', 'removedByLeader', 'removedTeamCode']) ||
+          ((!('role' in resource.data) || resource.data.role == '') && request.resource.data.role == 'Member') ||
+          isLeaderOfTeam(resource.data.teamCode) || isLeaderOfTeam(request.resource.data.teamCode));
+    }
+
     // Team leaders may change only team-managed fields on another member's
     // existing profile. Membership changes are limited to removal or approval
     // of a previously removed member; identity and account fields stay immutable.
@@ -469,28 +517,25 @@ service cloud.firestore {
       allow create: if isOwner(userId) &&
         isValidUser(request.resource.data, userId) &&
         (!('email' in request.resource.data) || request.resource.data.email == request.auth.token.email) &&
-        (!('teamCode' in request.resource.data) || request.resource.data.teamCode == '') &&
-        (!('teamName' in request.resource.data) || request.resource.data.teamName == '') &&
-        (!('role' in request.resource.data) || request.resource.data.role in ['', 'Member']) &&
-        (!('removedByLeader' in request.resource.data) || request.resource.data.removedByLeader == false) &&
-        (!('removedTeamCode' in request.resource.data) || request.resource.data.removedTeamCode == '');
+        (((!('teamCode' in request.resource.data) || request.resource.data.teamCode == '') &&
+          (!('teamName' in request.resource.data) || request.resource.data.teamName == '') &&
+          (!('role' in request.resource.data) || request.resource.data.role in ['', 'Member']) &&
+          (!('removedByLeader' in request.resource.data) || request.resource.data.removedByLeader == false) &&
+          (!('removedTeamCode' in request.resource.data) || request.resource.data.removedTeamCode == '')) ||
+          isValidSelfJoinCreate(userId) ||
+          (request.resource.data.role == 'Leader' && isLeaderOfTeam(request.resource.data.teamCode) &&
+            request.resource.data.teamName == get(teamPath(request.resource.data.teamCode)).data.teamName));
 
-      allow update: if isOwner(userId) &&
-        isValidUser(request.resource.data, userId) &&
-        areImmutableFieldsUnchanged(['uid', 'createdAt', 'email']) &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
-          ['role', 'removedByLeader', 'removedTeamCode']) ||
-          ((!('role' in resource.data) || resource.data.role == '') &&
-            request.resource.data.role == 'Member') ||
-          isLeaderOfTeam(resource.data.teamCode) || isLeaderOfTeam(request.resource.data.teamCode)) ||
-        isLeaderManagedUserUpdate(userId);
+      allow update: if isValidOwnerUserUpdate(userId) || isLeaderManagedUserUpdate(userId);
 
       allow delete: if isOwner(userId);
     }
 
     match /teams/{teamCode} {
-      // The invite code is the lookup key; clients cannot enumerate all teams.
-      allow get: if isAuthenticated();
+      // Team metadata is visible only after membership has been established.
+      // Joining clients submit the invite code on their own profile; these rules
+      // verify that the team exists before granting membership.
+      allow get: if isSameTeam(teamCode);
       allow list: if false;
       allow create: if isAuthenticated() &&
         isValidTeam(request.resource.data, teamCode) &&

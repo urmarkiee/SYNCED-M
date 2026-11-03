@@ -10,6 +10,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 object FirestoreManager {
     val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     const val USERS_COLLECTION = "users"
+    data class TeamJoinResult(val code: String, val teamName: String, val role: String)
 
     /**
      * Saves or updates a user profile document in Firestore: /users/{uid}
@@ -258,10 +259,49 @@ object FirestoreManager {
                 }
                 .addOnFailureListener { exception ->
                     android.util.Log.e("FirestoreManager", "Failed to create team in Firestore: ${exception.message}", exception)
-                    onComplete(Result.success(generatedCode))
+                    onComplete(Result.failure(exception))
                 }
         } catch (_: Exception) {
-            onComplete(Result.success(generatedCode))
+            onComplete(Result.failure(IllegalStateException("Could not create this team code. Please try again.")))
+        }
+    }
+
+    /** Joins by invite code without exposing the target team's document before membership. */
+    fun joinTeamByCode(
+        rawCode: String,
+        uid: String,
+        email: String = "",
+        onComplete: (Result<TeamJoinResult>) -> Unit
+    ) {
+        val cleanCode = rawCode.trim().uppercase()
+        if (!isValidTeamCodeFormat(cleanCode)) {
+            onComplete(Result.failure(IllegalArgumentException("Enter a valid 6-character team code.")))
+            return
+        }
+        updateUserRoleAndTeam(uid, "Member", "", cleanCode, email) { membershipResult ->
+            if (membershipResult.isFailure) {
+                onComplete(Result.failure(membershipResult.exceptionOrNull() ?: IllegalStateException("Could not join that team.")))
+                return@updateUserRoleAndTeam
+            }
+            db.collection(TEAMS_COLLECTION).document(cleanCode).get()
+                .addOnSuccessListener { snapshot ->
+                    if (!snapshot.exists()) {
+                        onComplete(Result.failure(IllegalArgumentException("No team was found with that invite code.")))
+                        return@addOnSuccessListener
+                    }
+                    val teamName = snapshot.getString("teamName").orEmpty()
+                    val effectiveUid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid?.takeIf { it.isNotBlank() } ?: uid
+                    val role = if (snapshot.getString("leaderUid") == effectiveUid) "Leader" else "Member"
+                    updateUserRoleAndTeam(effectiveUid, role, teamName, cleanCode, email) { profileResult ->
+                        if (profileResult.isSuccess) {
+                            registerLocalTeam(cleanCode, teamName)
+                            onComplete(Result.success(TeamJoinResult(cleanCode, teamName, role)))
+                        } else {
+                            onComplete(Result.failure(profileResult.exceptionOrNull() ?: IllegalStateException("Could not finish joining the team.")))
+                        }
+                    }
+                }
+                .addOnFailureListener { error -> onComplete(Result.failure(error)) }
         }
     }
 

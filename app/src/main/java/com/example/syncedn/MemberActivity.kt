@@ -918,11 +918,13 @@ open class MemberActivity : AppCompatActivity() {
                                 return@runOnUiThread
                             }
 
-                            FirestoreManager.getTeamByCode(enteredCode) { result ->
+                            FirestoreManager.joinTeamByCode(enteredCode, uid, emailStr) { result ->
                                 runOnUiThread {
                                     joinBtn?.isEnabled = true
                                     if (result.isSuccess) {
-                                        val (validCode, foundTeamName) = result.getOrNull()!!
+                                        val joinedTeam = result.getOrNull()!!
+                                        val validCode = joinedTeam.code
+                                        val foundTeamName = joinedTeam.teamName
                                         teamName = foundTeamName
                                         val curRem = preferences.getStringSet("team_removed_members_$validCode", null)?.toMutableSet()
                                         if (curRem != null) {
@@ -955,8 +957,7 @@ open class MemberActivity : AppCompatActivity() {
                                             if (curRem != null) putStringSet("team_removed_members_$validCode", curRem)
                                             if (genRem != null) putStringSet("removedMembers", genRem)
                                         }
-                                        val isLeadUser = emailStr.equals("\u0000", ignoreCase = true)
-                                        val resolvedRole = if (isLeadUser) "Leader" else "Member"
+                                        val resolvedRole = joinedTeam.role
                                         saveUserTeamState(resolvedRole, foundTeamName, validCode)
                                         FirestoreManager.updateUserRoleAndTeam(uid, resolvedRole, foundTeamName, validCode, emailStr)
                                         val memberName = fullName.ifBlank { displayName }
@@ -971,7 +972,7 @@ open class MemberActivity : AppCompatActivity() {
                                         )
                                         TeamRepository.cacheMember(newMember, preferences)
                                         toast("Joined team: $foundTeamName")
-                                        if (resolvedRole == "Leader" || isLeadUser) {
+                                        if (resolvedRole == "Leader") {
                                             startActivity(Intent(this@MemberActivity, AdminActivity::class.java).putExtra("startPage", "home"))
                                             finish()
                                         } else if (javaClass == MainActivity::class.java) {

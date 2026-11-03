@@ -874,30 +874,32 @@ class AdminActivity : AppCompatActivity() {
                     val joinBtn = findViewById<Button>(UI.joinTeamButton)
                     joinBtn?.isEnabled = false
                     syncLocalTeamsToMemory()
-                    FirestoreManager.getTeamByCode(enteredCode) { result ->
+                    val uid = preferences.getString("userId", "").orEmpty()
+                        .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.uid.orEmpty() }
+                        .ifBlank { "user_${displayName.hashCode()}" }
+                    val emailStr = preferences.getString("email", "").orEmpty()
+                        .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.email.orEmpty() }
+                    FirestoreManager.joinTeamByCode(enteredCode, uid, emailStr) { result ->
                         runOnUiThread {
                             joinBtn?.isEnabled = true
                             if (result.isSuccess) {
-                                val (validCode, foundTeamName) = result.getOrNull()!!
+                                val joinedTeam = result.getOrNull()!!
+                                val validCode = joinedTeam.code
+                                val foundTeamName = joinedTeam.teamName
                                 teamName = foundTeamName
-                                val uid = preferences.getString("userId", "").orEmpty()
-                                    .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.uid.orEmpty() }
-                                    .ifBlank { "user_${displayName.hashCode()}" }
-                                val emailStr = preferences.getString("email", "").orEmpty()
-                                    .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.email.orEmpty() }
                                 preferences.edit {
                                     putString("userId", uid)
                                     putString("email", emailStr)
                                 }
-                                saveUserTeamState("Member", foundTeamName, validCode)
-                                FirestoreManager.updateUserRoleAndTeam(uid, "Member", foundTeamName, validCode, emailStr)
+                                saveUserTeamState(joinedTeam.role, foundTeamName, validCode)
+                                FirestoreManager.updateUserRoleAndTeam(uid, joinedTeam.role, foundTeamName, validCode, emailStr)
                                 val memberName = fullName.ifBlank { displayName }
                                 val newMember = com.example.syncedn.data.model.TeamMember(
                                     uid = uid,
                                     fullName = memberName,
                                     username = displayName,
                                     email = emailStr,
-                                    role = "Member",
+                                    role = joinedTeam.role,
                                     ministryRole = preferences.getString("ministryRole", "Member").orEmpty().ifBlank { "Member" },
                                     teamCode = validCode
                                 )
