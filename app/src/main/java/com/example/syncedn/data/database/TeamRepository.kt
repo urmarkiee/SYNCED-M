@@ -1369,18 +1369,13 @@ object TeamRepository {
     fun isMemberRemovedFromTeam(
         teamCode: String,
         uid: String,
-        email: String = "",
-        preferences: android.content.SharedPreferences? = null,
         onResult: (Boolean) -> Unit
     ) {
         val code = teamCode.trim().uppercase()
-        if (code.isBlank() || (uid.isBlank() && email.isBlank())) {
+        if (code.isBlank() || uid.isBlank()) {
             onResult(false)
             return
         }
-
-        val uidLower = uid.trim().lowercase()
-        val emailLower = email.trim().lowercase()
 
         // Check Firestore first as single source of truth for membership status
         if (uid.isNotBlank()) {
@@ -1394,45 +1389,19 @@ object TeamRepository {
                             onResult(false)
                             return@addOnSuccessListener
                         }
-                        if (removed && (rTeamCode.isBlank() || rTeamCode.equals(code, ignoreCase = true))) {
-                            onResult(true)
-                            return@addOnSuccessListener
-                        }
+                        // Firestore is authoritative when the signed-in user's profile exists.
+                        // Do not let stale local removal flags submit a request the rules reject.
+                        onResult(removed && (rTeamCode.isBlank() || rTeamCode.equals(code, ignoreCase = true)))
+                        return@addOnSuccessListener
                     }
-                    checkPreferencesFallback(code, uidLower, emailLower, preferences, onResult)
+                    // A request cannot be authorized without a corresponding Firestore profile.
+                    onResult(false)
                 }
                 .addOnFailureListener {
-                    checkPreferencesFallback(code, uidLower, emailLower, preferences, onResult)
+                    // Avoid treating cached flags as proof of removal when Firebase cannot verify them.
+                    onResult(false)
                 }
-        } else {
-            checkPreferencesFallback(code, uidLower, emailLower, preferences, onResult)
         }
-    }
-
-    private fun checkPreferencesFallback(
-        code: String,
-        uidLower: String,
-        emailLower: String,
-        preferences: android.content.SharedPreferences?,
-        onResult: (Boolean) -> Unit
-    ) {
-        preferences?.let { prefs ->
-            if (emailLower.isNotBlank() && prefs.getBoolean("email_removed_by_leader_$emailLower", false)) {
-                val rCode = prefs.getString("email_removed_team_code_$emailLower", "").orEmpty()
-                if (rCode.isBlank() || rCode.equals(code, ignoreCase = true)) {
-                    onResult(true)
-                    return
-                }
-            }
-            if (uidLower.isNotBlank() && prefs.getBoolean("user_removed_by_leader_$uidLower", false)) {
-                val rCode = prefs.getString("user_removed_team_code_$uidLower", "").orEmpty()
-                if (rCode.isBlank() || rCode.equals(code, ignoreCase = true)) {
-                    onResult(true)
-                    return
-                }
-            }
-        }
-        onResult(false)
     }
 
     /**

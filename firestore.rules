@@ -218,7 +218,13 @@ service cloud.firestore {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedByLeader == true &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedTeamCode == teamCode;
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedTeamCode == teamCode ||
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.removedTeamCode == '' &&
+           exists(/databases/$(database)/documents/teams/$(teamCode)) &&
+           get(/databases/$(database)/documents/teams/$(teamCode)).data.removedMembers is list &&
+           request.auth.uid in get(/databases/$(database)/documents/teams/$(teamCode)).data.removedMembers)
+        );
     }
 
     function teamPath(teamCode) {

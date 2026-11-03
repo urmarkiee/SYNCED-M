@@ -874,13 +874,17 @@ open class MemberActivity : AppCompatActivity() {
                     val joinBtn = findViewById<Button>(UI.joinTeamButton)
                     joinBtn?.isEnabled = false
                     syncLocalTeamsToMemory()
-                    val uid = preferences.getString("userId", "").orEmpty()
-                        .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.uid.orEmpty() }
-                        .ifBlank { "user_${displayName.hashCode()}" }
-                    val emailStr = preferences.getString("email", "").orEmpty()
-                        .ifBlank { com.example.syncedn.data.auth.AuthManager.currentUser?.email.orEmpty() }
+                    val authenticatedUser = com.example.syncedn.data.auth.AuthManager.currentUser
+                    val uid = authenticatedUser?.uid.orEmpty()
+                    if (uid.isBlank()) {
+                        joinBtn?.isEnabled = true
+                        toast("Your sign-in session expired. Sign in again before requesting to rejoin.")
+                        return@click
+                    }
+                    val emailStr = authenticatedUser.email.orEmpty()
+                        .ifBlank { preferences.getString("email", "").orEmpty() }
 
-                    TeamRepository.isMemberRemovedFromTeam(enteredCode, uid, emailStr, preferences) { isRemoved ->
+                    TeamRepository.isMemberRemovedFromTeam(enteredCode, uid) { isRemoved ->
                         runOnUiThread {
                             if (isRemoved) {
                                 joinBtn?.isEnabled = true
