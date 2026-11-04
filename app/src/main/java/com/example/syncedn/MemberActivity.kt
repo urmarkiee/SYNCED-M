@@ -2517,13 +2517,10 @@ open class MemberActivity : AppCompatActivity() {
             add(text("Personal",15,navy,true));space(16)
             val appearance = horizontal().apply {
                 add(Symbol(this@MemberActivity, "settings", navy), 30, 30)
-                add(text("Dark mode", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
-                add(Switch(this@MemberActivity).apply {
+                add(text("Appearance", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
+                add(AppearanceSwitch(this@MemberActivity).apply {
                     contentDescription = "Dark mode"
                     isChecked = AppAppearance.mode(this@MemberActivity) == "dark"
-                    val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-                    thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, Color.WHITE))
-                    trackTintList = ColorStateList(states, intArrayOf(purple, Color.rgb(140, 135, 155)))
                     setOnCheckedChangeListener { _, checked ->
                         AppAppearance.setMode(this@MemberActivity, if (checked) "dark" else "light")
                         navigate("settings")

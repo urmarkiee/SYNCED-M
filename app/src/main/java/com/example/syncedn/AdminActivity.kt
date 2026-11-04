@@ -2422,13 +2422,10 @@ class AdminActivity : AppCompatActivity() {
             add(text("Personal",15,navy,true));space(16)
             val appearance = horizontal().apply {
                 add(Symbol(this@AdminActivity, "settings", navy), 30, 30)
-                add(text("Dark mode", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
-                add(Switch(this@AdminActivity).apply {
+                add(text("Appearance", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
+                add(AppearanceSwitch(this@AdminActivity).apply {
                     contentDescription = "Dark mode"
                     isChecked = AppAppearance.mode(this@AdminActivity) == "dark"
-                    val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-                    thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, Color.WHITE))
-                    trackTintList = ColorStateList(states, intArrayOf(purple, Color.rgb(140, 135, 155)))
                     setOnCheckedChangeListener { _, checked ->
                         AppAppearance.setMode(this@AdminActivity, if (checked) "dark" else "light")
                         navigate("settings")
