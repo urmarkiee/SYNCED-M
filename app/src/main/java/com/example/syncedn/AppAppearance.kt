@@ -46,7 +46,7 @@ object ThemePalette {
     fun surface(color: Int, dark: Boolean): Int {
         if (!dark || color ushr 24 != 255) return color
         val c = rgb(color)
-        if (c.minOrNull()!! < 195) return color
+        if (c.minOrNull()!! < 180) return color
         return when {
             color == 0xFFFFFFFF.toInt() -> 0xFF202136.toInt()
             c.maxOrNull()!! - c.minOrNull()!! <= 12 -> 0xFF141522.toInt()
