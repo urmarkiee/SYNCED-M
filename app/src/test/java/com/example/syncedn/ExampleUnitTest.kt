@@ -1,6 +1,13 @@
 package com.example.syncedn
 
 import org.junit.Test
+import io.mockk.*
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.OnSuccessListener
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.CollectionReference
+import com.example.syncedn.data.database.FirestoreManager
 
 import org.junit.Assert.*
 
@@ -172,19 +179,46 @@ class ExampleUnitTest {
         assertEquals("K7M9P2", restored.teamCode)
     }
 
+    private fun withSuccessfulTeamWrites(test: () -> Unit) {
+        val firestore = mockk<FirebaseFirestore>()
+        val collection = mockk<CollectionReference>()
+        val document = mockk<DocumentReference>()
+        val write = mockk<Task<Void>>(relaxed = true)
+        mockkObject(FirestoreManager)
+        try {
+            every { FirestoreManager.db } returns firestore
+            every { firestore.collection(any()) } returns collection
+            every { collection.document(any()) } returns document
+            every { document.set(any<Any>()) } returns write
+            every { document.set(any<Any>(), any<com.google.firebase.firestore.SetOptions>()) } returns write
+            every { write.addOnSuccessListener(any()) } answers {
+                firstArg<OnSuccessListener<Void>>().onSuccess(null)
+                write
+            }
+            // Unknown codes are rejected when the backing store is unavailable.
+            every { document.get() } throws IllegalStateException("No Firebase in local unit tests")
+            test()
+            verify(atLeast = 1) { document.set(any<Any>()) }
+            verify(atLeast = 1) { document.set(any<Any>(), any<com.google.firebase.firestore.SetOptions>()) }
+        } finally {
+            unmockkObject(FirestoreManager)
+            FirestoreManager.clearLocalTeams()
+        }
+    }
+
     @Test
-    fun testCreateTeamAndVerifyCodeFlow() {
+    fun testCreateTeamAndVerifyCodeFlow() = withSuccessfulTeamWrites {
         val fm = com.example.syncedn.data.database.FirestoreManager
         fm.clearLocalTeams()
 
-        // 1. Creating a team completes immediately and generates a valid 6-character code
+        // 1. Confirmed Firebase writes return a valid 6-character code
         var createdCode = ""
         fm.createTeamWithCode(
             leaderUid = "leader-uid-1",
             leaderName = "Leader Ryan",
             teamName = "Praise Ministry"
         ) { result ->
-            assertTrue("Team creation should succeed immediately", result.isSuccess)
+            assertTrue("Team creation should succeed after Firebase confirms the write", result.isSuccess)
             createdCode = result.getOrNull().orEmpty()
         }
         assertEquals(6, createdCode.length)
@@ -209,7 +243,7 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun testLeaderRoleAndTeamCodePersistAcrossRelogin() {
+    fun testLeaderRoleAndTeamCodePersistAcrossRelogin() = withSuccessfulTeamWrites {
         val fm = com.example.syncedn.data.database.FirestoreManager
         fm.clearLocalTeams()
 
