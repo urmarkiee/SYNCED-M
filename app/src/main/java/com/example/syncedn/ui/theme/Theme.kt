@@ -14,7 +14,11 @@ import androidx.compose.ui.graphics.Color
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
     secondary = PurpleGrey80,
-    tertiary = Pink80
+    tertiary = Pink80,
+    background = Color(0xFF141522),
+    surface = Color(0xFF202136),
+    onBackground = Color(0xFFF2EFFA),
+    onSurface = Color(0xFFF2EFFA)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -32,7 +36,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit

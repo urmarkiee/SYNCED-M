@@ -12,6 +12,7 @@ import com.example.syncedn.data.auth.SyncedMessagingService
 class SyncedApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppAppearance.apply(this)
         // Ensure notification channel is registered with system OS on startup
         SyncedMessagingService.ensureChannel(this)
 

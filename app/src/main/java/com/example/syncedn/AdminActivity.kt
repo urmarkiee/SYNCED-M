@@ -121,7 +121,7 @@ class AdminActivity : AppCompatActivity() {
         if (imageUrl.isBlank()) return
         val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         val container = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(235, 0, 0, 0))
+            setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.argb(235, 0, 0, 0)))
         }
         val iv = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -366,6 +366,7 @@ class AdminActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppAppearance.applyWindow(this, window)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         syncLocalTeamsToMemory()
         checkAndRequestNotificationPermission()
@@ -1181,8 +1182,8 @@ class AdminActivity : AppCompatActivity() {
     private val bitmaps = mutableMapOf<String, Bitmap>()
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun bg(color: Int, radius: Int = 0, stroke: Int? = null) = GradientDrawable().apply {
-        setColor(color); cornerRadius = dp(radius).toFloat()
-        stroke?.let { setStroke(dp(1), it) }
+        setColor(AppAppearance.surface(this@AdminActivity, color)); cornerRadius = dp(radius).toFloat()
+        stroke?.let { setStroke(dp(1), AppAppearance.border(this@AdminActivity, it)) }
     }
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren=false; clipToPadding=false }
     private fun horizontal() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren=false; clipToPadding=false }
@@ -1193,7 +1194,7 @@ class AdminActivity : AppCompatActivity() {
     private fun LinearLayout.space(height: Int) { add(View(this@AdminActivity), 1, height) }
     private fun text(value: String, size: Int = 14, color: Int = navy, bold: Boolean = false,
                      centered: Boolean = false, id: Int = View.NO_ID) = TextView(this).apply {
-        this.id = id; this.text = value; textSize = size.toFloat(); setTextColor(color)
+        this.id = id; this.text = value; textSize = size.toFloat(); setTextColor(AppAppearance.text(this@AdminActivity, color))
         if (bold) setTypeface(typeface, Typeface.BOLD)
         includeFontPadding = false
         gravity = if (centered) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
@@ -1284,7 +1285,7 @@ class AdminActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(if (width < 0) width else dp(width), dp(48)).apply { gravity = Gravity.CENTER_HORIZONTAL }
         } else Button(this).apply {
             this.id = id; text = label; textSize = 14f; isAllCaps = false
-            setTextColor(Color.WHITE); background = bg(purple, 24)
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE)); background = bg(purple, 24)
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             stateListAnimator = null; setPadding(0,0,0,0)
             layoutParams = LinearLayout.LayoutParams(if (width < 0) width else dp(width), dp(40)).apply { gravity = Gravity.CENTER_HORIZONTAL }
@@ -1300,8 +1301,8 @@ class AdminActivity : AppCompatActivity() {
         val row = horizontal().apply { background = bg(Color.rgb(246,244,250),14,Color.rgb(230,226,239)); setPadding(dp(12),0,dp(4),0) }
         if (icon != null) row.add(Symbol(this,icon,Color.rgb(123, 118, 137)),24,24)
         val edit = EditText(this).apply {
-            this.id = id; this.hint = hint; textSize = 14f; setTextColor(navy)
-            setHintTextColor(Color.rgb(115,115,115)); background = null; setPadding(dp(6),0,dp(6),0)
+            this.id = id; this.hint = hint; textSize = 14f; setTextColor(AppAppearance.text(this@AdminActivity, navy))
+            setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(115,115,115))); background = null; setPadding(dp(6),0,dp(6),0)
             inputType = when {
                 password -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                 email -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
@@ -1315,7 +1316,7 @@ class AdminActivity : AppCompatActivity() {
         if (password) {
             val eye = ImageButton(this).apply {
                 this.id = toggle; background = null; contentDescription = "Show password"
-                setImageDrawable(EyeDrawable()); setPadding(dp(12),dp(12),dp(12),dp(12))
+                setImageDrawable(EyeDrawable(AppAppearance.text(this@AdminActivity, navy))); setPadding(dp(12),dp(12),dp(12),dp(12))
             }
             row.add(eye,48,48)
         }
@@ -1340,7 +1341,7 @@ class AdminActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 textSize = 20f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(purple)
+                setTextColor(AppAppearance.text(this@AdminActivity, purple))
                 inputType = InputType.TYPE_CLASS_NUMBER
                 filters = arrayOf(InputFilter.LengthFilter(1))
                 background = bg(Color.rgb(240, 240, 244), 10, Color.rgb(215, 215, 222))
@@ -1424,7 +1425,7 @@ class AdminActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 textSize = 20f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(purple)
+                setTextColor(AppAppearance.text(this@AdminActivity, purple))
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
                 filters = arrayOf(InputFilter.LengthFilter(1), InputFilter.AllCaps())
                 background = bg(Color.rgb(240, 240, 244), 10, Color.rgb(215, 215, 222))
@@ -1491,7 +1492,7 @@ class AdminActivity : AppCompatActivity() {
         return root
     }
     private fun form(right: Boolean = false): Pair<FrameLayout, LinearLayout> {
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = FrameLayout(this).apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         val scroll = StableScrollView(this).apply { isFillViewport = true }
         val col = vertical()
         scroll.addView(col, FrameLayout.LayoutParams(-1, -2))
@@ -1555,9 +1556,9 @@ class AdminActivity : AppCompatActivity() {
                     action(UI.loginButton,"Log In"); action(UI.forgotPasswordButton,"Forgot Password?",-2,true)
                     space(10)
                     val divider = horizontal()
-                    divider.add(View(this@AdminActivity).apply { setBackgroundColor(Color.rgb(224, 220, 232)) },0,1,1f)
+                    divider.add(View(this@AdminActivity).apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(224, 220, 232))) },0,1,1f)
                     divider.add(text("or",centered=true),44,30)
-                    divider.add(View(this@AdminActivity).apply { setBackgroundColor(Color.rgb(224, 220, 232)) },0,1,1f)
+                    divider.add(View(this@AdminActivity).apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(224, 220, 232))) },0,1,1f)
                     add(divider); space(16)
                     val google = horizontal().apply { id=UI.googleButton; gravity=Gravity.CENTER; background=bg(Color.WHITE,14,Color.rgb(230,226,239)); isClickable=true; isFocusable=true; contentDescription="Continue with Google" }
                     google.add(image("google_mark"),26,26)
@@ -1622,7 +1623,7 @@ class AdminActivity : AppCompatActivity() {
         return root
     }
     private fun startView(): View = FrameLayout(this).apply {
-        setBackgroundColor(Color.rgb(2, 12, 40))
+        setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(2, 12, 40)))
         addView(image("landing_background", "Worshippers and glowing cross").apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
         }, FrameLayout.LayoutParams(-1, -1))
@@ -1944,7 +1945,7 @@ class AdminActivity : AppCompatActivity() {
         }
     }
     private fun homeView(): View {
-        val root=vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root=vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         val swipeRefresh = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
             setColorSchemeColors(navy, Color.rgb(126, 91, 220))
             setOnRefreshListener {
@@ -2051,7 +2052,7 @@ class AdminActivity : AppCompatActivity() {
                 val textCol = vertical().apply {
                     val nextBadge = TextView(this@AdminActivity).apply {
                         text = if (upcomingRec == null) "YOUR WORSHIP SPACE" else "UP NEXT"
-                        setTextColor(Color.WHITE); textSize = 9f; typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE)); textSize = 9f; typeface = Typeface.DEFAULT_BOLD
                         letterSpacing = 0.08f; setPadding(dp(10), dp(5), dp(10), dp(5))
                         background = bg(Color.rgb(126,91,220), 14)
                     }
@@ -2063,7 +2064,7 @@ class AdminActivity : AppCompatActivity() {
 
                     val titleTv = TextView(this@AdminActivity).apply {
                         text = formattedTitle
-                        setTextColor(Color.WHITE)
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                         textSize = 22f
                         typeface = Typeface.DEFAULT_BOLD
                         maxLines = 2
@@ -2079,7 +2080,7 @@ class AdminActivity : AppCompatActivity() {
 
                     val subTv = TextView(this@AdminActivity).apply {
                         text = formattedSubtitle
-                        setTextColor(Color.rgb(203, 213, 225))
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(203, 213, 225)))
                         textSize = 13f
                         maxLines = 1
                         ellipsize = android.text.TextUtils.TruncateAt.END
@@ -2092,7 +2093,7 @@ class AdminActivity : AppCompatActivity() {
                         setPadding(dp(14), dp(6), dp(14), dp(6))
                         val vTv = TextView(this@AdminActivity).apply {
                             text = upcomingRec?.optString("venue")?.ifBlank { "Venue not set" } ?: "Start planning"
-                            setTextColor(Color.WHITE)
+                            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                             textSize = 12f
                             typeface = Typeface.DEFAULT_BOLD
                             maxLines = 1
@@ -2114,7 +2115,7 @@ class AdminActivity : AppCompatActivity() {
                     background = bg(Color.argb(135, 30, 41, 59), 23, Color.argb(60, 255, 255, 255))
                     val arrow = TextView(this@AdminActivity).apply {
                         text = "›"
-                        setTextColor(Color.WHITE)
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                         textSize = 24f
                         typeface = Typeface.DEFAULT_BOLD
                         gravity = Gravity.CENTER
@@ -2288,7 +2289,7 @@ class AdminActivity : AppCompatActivity() {
             }
             add(upcoming);space(44)
         }
-        val nav=horizontal().apply { elevation=dp(8).toFloat();setBackgroundColor(Color.WHITE) }
+        val nav=horizontal().apply { elevation=dp(8).toFloat();setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.WHITE)) }
         for ((id,symbol,label) in listOf(Triple(UI.homeTab,"home","Home"),Triple(UI.scheduleTab,"calendar","Schedule"),Triple(UI.teamsTab,"teams","Teams"),Triple(UI.settingsTab,"settings","Settings"))) {
             val c=if(id==UI.homeTab) Color.rgb(126,91,220) else navy
             val tab=vertical().apply { this.id=id;gravity=Gravity.CENTER;isClickable=true;isFocusable=true;contentDescription=label;add(Symbol(this@AdminActivity,symbol,c),24,24);space(2);add(text(label,9,c,centered=true)) }
@@ -2301,7 +2302,7 @@ class AdminActivity : AppCompatActivity() {
     private fun openProfile(from: String) { profileReturnPage=from; navigate("profile") }
     private fun settingsHeader(title: String, back: Boolean): View {
         val row=horizontal().apply {
-            setBackgroundColor(Color.rgb(248,247,251))
+            setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251)))
         }
         val backView=FrameLayout(this).apply {
             id=UI.pageBack;isClickable=true;isFocusable=true;contentDescription=if(back) "Back" else "Back to Home"
@@ -2312,7 +2313,7 @@ class AdminActivity : AppCompatActivity() {
         return row
     }
     private fun bottomNavigation(selected: String): View {
-        val nav=horizontal().apply {elevation=dp(8).toFloat();setBackgroundColor(Color.WHITE)}
+        val nav=horizontal().apply {elevation=dp(8).toFloat();setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.WHITE))}
         for((id,icon,label) in listOf(Triple(UI.homeTab,"home","Home"),Triple(UI.scheduleTab,"calendar","Schedule"),Triple(UI.teamsTab,"teams","Teams"),Triple(UI.settingsTab,"settings","Settings"))) {
             val color=if(label==selected) Color.rgb(126,91,220) else navy
             nav.add(vertical().apply {
@@ -2332,7 +2333,7 @@ class AdminActivity : AppCompatActivity() {
             val emptyIv = ImageView(this).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(Color.rgb(90, 188, 248))
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.rgb(90, 188, 248)))
                 }
             }
             container.addView(emptyIv, FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.CENTER_VERTICAL))
@@ -2343,7 +2344,7 @@ class AdminActivity : AppCompatActivity() {
             val avatarFrame = FrameLayout(this).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(Color.WHITE)
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.WHITE))
                     setStroke(dp(1), Color.rgb(217, 217, 217))
                 }
                 setPadding(dp(1), dp(1), dp(1), dp(1))
@@ -2369,7 +2370,7 @@ class AdminActivity : AppCompatActivity() {
     }
 
     private fun settingsView(): View {
-        val root=vertical().apply {setBackgroundColor(Color.rgb(248,247,251))}
+        val root=vertical().apply {setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251)))}
         root.add(settingsHeader("Settings",true))
         val scroll=StableScrollView(this).apply {isFillViewport=true; clipToPadding=true}
         val col=vertical();scroll.addView(col,FrameLayout.LayoutParams(-1,-2))
@@ -2419,6 +2420,25 @@ class AdminActivity : AppCompatActivity() {
         }
         col.section(26).apply {
             add(text("Personal",15,navy,true));space(16)
+            val appearance = horizontal().apply {
+                isClickable = true; isFocusable = true; contentDescription = "Appearance"
+                add(Symbol(this@AdminActivity, "settings", navy), 30, 30)
+                add(text("Appearance", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
+                add(text(when (AppAppearance.mode(this@AdminActivity)) {
+                    "dark" -> "Dark"; "light" -> "Light"; else -> "System"
+                }, 13, navy))
+                setOnClickListener {
+                    val modes = arrayOf("system", "light", "dark")
+                    AlertDialog.Builder(this@AdminActivity).setTitle("Appearance")
+                        .setSingleChoiceItems(arrayOf("Use system setting", "Light", "Dark"),
+                            modes.indexOf(AppAppearance.mode(this@AdminActivity))) { dialog, index ->
+                            dialog.dismiss()
+                            AppAppearance.setMode(this@AdminActivity, modes[index])
+                            navigate("settings")
+                        }.setNegativeButton("Cancel", null).show()
+                }
+            }
+            add(appearance)
             val notification=horizontal()
             notification.add(Symbol(this@AdminActivity,"bell",navy),30,30)
             notification.add(text("Notification",14,navy,true).apply {setPadding(dp(10),0,0,0)},0,48,1f)
@@ -2528,7 +2548,7 @@ class AdminActivity : AppCompatActivity() {
             this.id = id; setText(value); this.hint = hint; inputType = kind; setSingleLine(true)
             background = null; textSize = 13f; includeFontPadding = false
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setTextColor(navy); setHintTextColor(Color.rgb(123, 118, 137))
+            setTextColor(AppAppearance.text(this@AdminActivity, navy)); setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(123, 118, 137)))
             setPadding(0, 0, dp(3), 0); isSaveEnabled = false
             filters = arrayOf(InputFilter.LengthFilter(maxLength))
             if (kind == InputType.TYPE_CLASS_PHONE) {
@@ -2544,7 +2564,7 @@ class AdminActivity : AppCompatActivity() {
         val choices=object : ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,values) {
             override fun getView(position: Int,convertView: View?,parent: ViewGroup): View {
                 return (super.getView(position,convertView,parent) as TextView).apply {
-                    textSize=13f;includeFontPadding=false;setTextColor(navy)
+                    textSize=13f;includeFontPadding=false;setTextColor(AppAppearance.text(this@AdminActivity, navy))
                     gravity=Gravity.END or Gravity.CENTER_VERTICAL;setPadding(0,0,dp(8),0)
                     minHeight=dp(48);setSingleLine(true)
                 }
@@ -2552,7 +2572,7 @@ class AdminActivity : AppCompatActivity() {
             override fun getDropDownView(position: Int,convertView: View?,parent: ViewGroup): View {
                 return (super.getDropDownView(position,convertView,parent) as TextView).apply {
                     textSize=14f;includeFontPadding=false;gravity=Gravity.START or Gravity.CENTER_VERTICAL
-                    setPadding(dp(12),0,dp(12),0);minHeight=dp(48);setTextColor(navy)
+                    setPadding(dp(12),0,dp(12),0);minHeight=dp(48);setTextColor(AppAppearance.text(this@AdminActivity, navy))
                 }
             }
         }
@@ -2565,7 +2585,7 @@ class AdminActivity : AppCompatActivity() {
     private fun profileView(): View {
         fullName = preferences.getString(SessionManager.KEY_FULL_NAME, fullName).orEmpty()
         displayName = preferences.getString(SessionManager.KEY_USERNAME, displayName).orEmpty()
-        val root=vertical().apply {setBackgroundColor(Color.rgb(248,247,251))}
+        val root=vertical().apply {setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251)))}
         root.add(settingsHeader("Profile",true))
         val scroll=StableScrollView(this).apply {isFillViewport=true; clipToPadding=true}
         val col=vertical();scroll.addView(col,FrameLayout.LayoutParams(-1,-2));root.add(scroll,-1,0,1f)
@@ -3274,7 +3294,7 @@ class AdminActivity : AppCompatActivity() {
                 text = if (currentCover.isNotBlank()) "Change" else "Choose"
                 textSize = 12f
                 isAllCaps = false
-                setTextColor(Color.WHITE)
+                setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                 background = bg(purple, 8)
                 setOnClickListener {
                     val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -3373,7 +3393,7 @@ class AdminActivity : AppCompatActivity() {
             text = "Assign Roles"
             isAllCaps = false
             background = bg(purple, 24)
-            setTextColor(Color.WHITE)
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
             setTypeface(typeface, Typeface.BOLD)
             minimumHeight = dp(48)
             setOnClickListener { navigate("serviceAssignments") }
@@ -3428,7 +3448,7 @@ class AdminActivity : AppCompatActivity() {
         if (assigned.length() == 0) {
             val emptyCard = vertical().apply {
                 background = GradientDrawable().apply {
-                    setColor(Color.WHITE)
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.WHITE))
                     cornerRadius = dp(14).toFloat()
                     setStroke(dp(1), Color.rgb(226, 232, 240))
                 }
@@ -3454,7 +3474,7 @@ class AdminActivity : AppCompatActivity() {
 
             val card = FrameLayout(this@AdminActivity).apply {
                 background = GradientDrawable().apply {
-                    setColor(Color.WHITE)
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.WHITE))
                     cornerRadius = dp(14).toFloat()
                     setStroke(dp(1), if (isUnavailable) Color.RED else Color.rgb(226, 232, 240))
                 }
@@ -4036,7 +4056,7 @@ class AdminActivity : AppCompatActivity() {
             previewButtons.forEach { (chord, tv) ->
                 val isActive = (chord == targetChord)
                 tv.background = bg(if (isActive) navy else Color.rgb(228, 220, 235), 8)
-                tv.setTextColor(if (isActive) Color.WHITE else navy)
+                tv.setTextColor(AppAppearance.text(this@AdminActivity, if (isActive) Color.WHITE else navy))
             }
         }
 
@@ -4206,7 +4226,7 @@ class AdminActivity : AppCompatActivity() {
         val urgent = android.widget.CheckBox(this).apply {
             text = "Mark as Urgent Alert"
             textSize = 13f
-            setTextColor(navy)
+            setTextColor(AppAppearance.text(this@AdminActivity, navy))
             isChecked = editingAnnouncement?.urgent ?: false
         }
         col.add(urgent)
@@ -4217,7 +4237,7 @@ class AdminActivity : AppCompatActivity() {
                 text = "Back"
                 isAllCaps = false
                 background = bg(Color.WHITE, 12, Color.rgb(126, 91, 220))
-                setTextColor(Color.rgb(126, 91, 220))
+                setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(126, 91, 220)))
                 minimumHeight = dp(48)
                 setOnClickListener {
                     editingAnnouncement = null
@@ -4228,7 +4248,7 @@ class AdminActivity : AppCompatActivity() {
                 text = actionLabel
                 isAllCaps = false
                 background = bg(purple, 12)
-                setTextColor(Color.WHITE)
+                setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                 minimumHeight = dp(48)
                 setOnClickListener {
                     when {
@@ -4335,7 +4355,7 @@ class AdminActivity : AppCompatActivity() {
                         val moreBtn = TextView(this@AdminActivity).apply {
                             text = "⋮"
                             textSize = 20f
-                            setTextColor(navy)
+                            setTextColor(AppAppearance.text(this@AdminActivity, navy))
                             gravity = Gravity.CENTER
                             setPadding(dp(6), 0, dp(4), 0)
                             isClickable = true
@@ -4446,7 +4466,7 @@ class AdminActivity : AppCompatActivity() {
         }.setNegativeButton("Cancel", null).show()
     }
     private fun roleEditView(): View {
-        val root = vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         root.add(teamHeader(showDetails = true), -1, 156)
         teamTab = "Role"
         root.add(teamTabs())
@@ -4561,7 +4581,7 @@ class AdminActivity : AppCompatActivity() {
             text = "Save"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
             gravity = Gravity.CENTER
             background = bg(Color.rgb(0, 153, 255), 20)
             isClickable = true
@@ -4712,7 +4732,7 @@ class AdminActivity : AppCompatActivity() {
                 text = "Transfer Leadership"
                 textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.rgb(239, 68, 68))
+                setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(239, 68, 68)))
                 gravity = Gravity.CENTER
                 background = bg(Color.argb(40, 239, 68, 68), 20)
                 setPadding(dp(20), dp(10), dp(20), dp(10))
@@ -4800,7 +4820,7 @@ class AdminActivity : AppCompatActivity() {
             text = label
             isAllCaps = false
             background = bg(Color.WHITE, 12, strokeColor)
-            setTextColor(strokeColor)
+            setTextColor(AppAppearance.text(this@AdminActivity, strokeColor))
             setOnClickListener { action() }
             minimumHeight = dp(48)
         }
@@ -4820,7 +4840,7 @@ class AdminActivity : AppCompatActivity() {
     private fun memberPage(title: String, back: String, tab: String? = null,
                            footer: (() -> View?)? = null,
                            body: (LinearLayout) -> Unit): View {
-        val root = vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         val header = settingsHeader(title, true)
         header.findViewById<View>(UI.pageBack).setOnClickListener { navigate(back) }
         root.add(header)
@@ -5001,7 +5021,7 @@ class AdminActivity : AppCompatActivity() {
     }
     private fun scheduleView(): View {
         val root = vertical().apply {
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.WHITE))
             clipChildren = true
             clipToPadding = true
         }
@@ -5270,7 +5290,7 @@ class AdminActivity : AppCompatActivity() {
             text = "Set Unavailable"
             isAllCaps = false
             background = bg(Color.rgb(105, 76, 196), 24)
-            setTextColor(Color.WHITE)
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
             setTypeface(typeface, Typeface.BOLD)
             minimumHeight = dp(48)
             setOnClickListener { navigate("availability") }
@@ -5316,7 +5336,7 @@ class AdminActivity : AppCompatActivity() {
     private fun plainInput(hintText: String, multiline: Boolean = false, chordSheet: Boolean = false) =
         (if (chordSheet) ChordSheetInput(this) else EditText(this)).apply {
         hint = hintText; textSize = 13f; includeFontPadding = false
-        setTextColor(navy); setHintTextColor(Color.rgb(123, 118, 137))
+        setTextColor(AppAppearance.text(this@AdminActivity, navy)); setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(123, 118, 137)))
         background = bg(Color.rgb(242, 242, 245), 10, Color.LTGRAY)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         inputType = InputType.TYPE_CLASS_TEXT or
@@ -5325,7 +5345,7 @@ class AdminActivity : AppCompatActivity() {
         gravity = if (multiline) Gravity.TOP or Gravity.START else Gravity.CENTER_VERTICAL
     }
     private fun availabilityView(): View {
-        val root = vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         val header = settingsHeader("Manage Schedule", true)
         header.findViewById<View>(UI.pageBack).setOnClickListener { navigate("calendar") }
         root.add(header)
@@ -5429,8 +5449,8 @@ class AdminActivity : AppCompatActivity() {
         darkCard.add(text("Reason", 14, Color.WHITE, bold = false)); darkCard.space(6)
         val reasonInput = EditText(this).apply {
             hint = "Family bonding"
-            setHintTextColor(Color.rgb(115, 115, 115))
-            setTextColor(Color.rgb(20, 27, 52))
+            setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(115, 115, 115)))
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(20, 27, 52)))
             textSize = 14f
             background = bg(Color.rgb(217, 217, 217), 18)
             setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -5485,7 +5505,7 @@ class AdminActivity : AppCompatActivity() {
             text = "Save"
             isAllCaps = false
             textSize = 14f
-            setTextColor(Color.WHITE)
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
             typeface = Typeface.DEFAULT
             background = bg(Color.rgb(20, 27, 52), 20)
             stateListAnimator = null
@@ -5693,7 +5713,7 @@ class AdminActivity : AppCompatActivity() {
                             text = if (isSubAccepted) "Approve & Update Lineup" else "Direct Approve & Update"
                             isAllCaps = false
                             background = bg(Color.rgb(46, 125, 50), 8)
-                            setTextColor(Color.WHITE)
+                            setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                             minimumHeight = dp(38)
                             textSize = 12f
                             setTypeface(typeface, Typeface.BOLD)
@@ -5725,7 +5745,7 @@ class AdminActivity : AppCompatActivity() {
                             text = "Decline"
                             isAllCaps = false
                             background = bg(Color.WHITE, 8, Color.rgb(220, 38, 38))
-                            setTextColor(Color.rgb(220, 38, 38))
+                            setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(220, 38, 38)))
                             minimumHeight = dp(38)
                             textSize = 12f
                             setTypeface(typeface, Typeface.BOLD)
@@ -5792,7 +5812,7 @@ class AdminActivity : AppCompatActivity() {
                 text = "+ Post"
                 textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                 background = bg(purple, 20)
                 gravity = Gravity.CENTER
                 setPadding(dp(22), dp(10), dp(22), dp(10))
@@ -5827,7 +5847,7 @@ class AdminActivity : AppCompatActivity() {
         val clearSubBtn = TextView(this@AdminActivity).apply {
             text = "Clear All"
             textSize = 12f
-            setTextColor(Color.rgb(180, 50, 50))
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(180, 50, 50)))
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(8), dp(4), dp(8), dp(4))
             isClickable = true
@@ -5859,7 +5879,7 @@ class AdminActivity : AppCompatActivity() {
         val clearBtn = TextView(this@AdminActivity).apply {
             text = "Clear All"
             textSize = 12f
-            setTextColor(Color.rgb(180, 50, 50))
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(180, 50, 50)))
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(8), dp(4), dp(8), dp(4))
             isClickable = true
@@ -5937,7 +5957,7 @@ class AdminActivity : AppCompatActivity() {
                         text = "Approve Re-join"
                         isAllCaps = false
                         background = bg(Color.rgb(46, 125, 50), 8)
-                        setTextColor(Color.WHITE)
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                         minimumHeight = dp(38)
                         textSize = 12f
                         setTypeface(typeface, Typeface.BOLD)
@@ -5970,7 +5990,7 @@ class AdminActivity : AppCompatActivity() {
                         text = "Decline"
                         isAllCaps = false
                         background = bg(Color.rgb(243, 244, 246), 8, Color.rgb(209, 213, 219))
-                        setTextColor(Color.rgb(180, 50, 50))
+                        setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(180, 50, 50)))
                         minimumHeight = dp(38)
                         textSize = 12f
                         setTypeface(typeface, Typeface.BOLD)
@@ -6048,7 +6068,7 @@ class AdminActivity : AppCompatActivity() {
                 val delBtn = TextView(this@AdminActivity).apply {
                     text = "✕"
                     textSize = 13f
-                    setTextColor(Color.rgb(156, 163, 175))
+                    setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(156, 163, 175)))
                     setPadding(dp(8), dp(6), dp(8), dp(6))
                     isClickable = true
                     isFocusable = true
@@ -6134,8 +6154,8 @@ class AdminActivity : AppCompatActivity() {
     private fun songsView(): View = memberPage("Songs", songsReturnPage) { col ->
         val search = EditText(this).apply {
             hint = "Search by title or artist"
-            setHintTextColor(Color.rgb(107, 114, 128))
-            setTextColor(Color.rgb(30, 41, 59))
+            setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(107, 114, 128)))
+            setTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(30, 41, 59)))
             textSize = 14f
             background = null
             setSingleLine(true)
@@ -6364,7 +6384,7 @@ class AdminActivity : AppCompatActivity() {
             sheetText.text = ChordSheet.render(sheet, if (isVocalist) 0 else offset, !showChords, root.contains('b') || root == "F")
             keyButtons.forEach { (pitch, button) ->
                 val selected = pitch == target
-                button.setTextColor(if(selected) Color.WHITE else navy)
+                button.setTextColor(AppAppearance.text(this@AdminActivity, if(selected) Color.WHITE else navy))
                 button.background = SongControlStyle.background(resources, selected)
                 button.isSelected = selected
             }
@@ -6661,7 +6681,7 @@ class AdminActivity : AppCompatActivity() {
             }
             val bubble = vertical().apply {
                 background = GradientDrawable().apply {
-                    setColor(Color.rgb(21, 28, 50))
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.rgb(21, 28, 50)))
                     cornerRadii = floatArrayOf(
                         dp(18).toFloat(), dp(18).toFloat(),
                         dp(18).toFloat(), dp(18).toFloat(),
@@ -6790,7 +6810,7 @@ class AdminActivity : AppCompatActivity() {
 
             val bubble = vertical().apply {
                 background = GradientDrawable().apply {
-                    setColor(Color.rgb(241, 245, 249))
+                    setColor(AppAppearance.surface(this@AdminActivity, Color.rgb(241, 245, 249)))
                     cornerRadii = floatArrayOf(
                         dp(18).toFloat(), dp(18).toFloat(),
                         dp(18).toFloat(), dp(18).toFloat(),
@@ -6960,7 +6980,7 @@ class AdminActivity : AppCompatActivity() {
             chatListener?.remove()
             chatListener = null
         }
-        val root = vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         root.add(teamHeader(showDetails = true), -1, 156)
         root.add(teamTabs())
         val scroll = StableScrollView(this).apply { isFillViewport = true; clipToPadding = true }
@@ -7242,9 +7262,9 @@ class AdminActivity : AppCompatActivity() {
         return root
     }
     private fun teamDetailsView(): View {
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val root = FrameLayout(this).apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
 
-        val mainCol = vertical().apply { setBackgroundColor(Color.rgb(248,247,251)) }
+        val mainCol = vertical().apply { setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.rgb(248,247,251))) }
         mainCol.add(teamHeader(), -1, 88)
         val scroll = StableScrollView(this).apply { isFillViewport = true; clipToPadding = true }
         val col = vertical().apply { setPadding(dp(20), dp(24), dp(20), dp(24)) }
@@ -7575,7 +7595,7 @@ class AdminActivity : AppCompatActivity() {
         // Overlay Sheet (Add Role or Remove Member)
         if (activeTeamSheet != null) {
             val scrim = View(this).apply {
-                setBackgroundColor(Color.argb(120, 0, 0, 0))
+                setBackgroundColor(AppAppearance.surface(this@AdminActivity, Color.argb(120, 0, 0, 0)))
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -7626,8 +7646,8 @@ class AdminActivity : AppCompatActivity() {
                 val newRoleInput = plainInput("New Role").apply {
                     background = bg(Color.rgb(217, 217, 217), 8)
                     setPadding(dp(16), 0, dp(16), 0)
-                    setTextColor(navy)
-                    setHintTextColor(Color.rgb(117, 117, 117))
+                    setTextColor(AppAppearance.text(this@AdminActivity, navy))
+                    setHintTextColor(AppAppearance.text(this@AdminActivity, Color.rgb(117, 117, 117)))
                     textSize = 14f
                 }
                 sheetCol.add(newRoleInput, -1, 44)
@@ -7638,7 +7658,7 @@ class AdminActivity : AppCompatActivity() {
                     text = "Save"
                     textSize = 14f
                     setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(Color.WHITE)
+                    setTextColor(AppAppearance.text(this@AdminActivity, Color.WHITE))
                     gravity = Gravity.CENTER
                     background = bg(Color.rgb(0, 153, 255), 20)
                     isClickable = true

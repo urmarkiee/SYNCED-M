@@ -34,7 +34,7 @@ internal class MetronomeView(
     private val song: String,
     songBpm: Int
 ) : LinearLayout(context) {
-    private val navy=Color.rgb(30,27,56)
+    private val navy = AppAppearance.text(context, Color.rgb(30, 27, 56))
     private val purple=Color.rgb(105,76,196)
     private val main=Handler(Looper.getMainLooper())
     private val audio=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager

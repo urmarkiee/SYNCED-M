@@ -33,7 +33,7 @@ internal class SheetAutoScrollControls(
     private var lastFrame = 0L
     private val sheetLocation = IntArray(2)
     private val scrollLocation = IntArray(2)
-    private val navy = Color.rgb(30,27,56)
+    private val navy = AppAppearance.text(context, Color.rgb(30, 27, 56))
     private val fontLabel = label("${fontSize}sp", 12)
     private val status = label("Ready", 11)
     private val speedLabel = label("Speed $speed", 12)
@@ -64,7 +64,7 @@ internal class SheetAutoScrollControls(
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(Color.WHITE)
+        setBackgroundColor(AppAppearance.surface(context, Color.WHITE))
         setPadding(dp(16),dp(4),dp(16),dp(4))
         elevation = dp(1).toFloat()
         sheet.textSize = fontSize.toFloat()

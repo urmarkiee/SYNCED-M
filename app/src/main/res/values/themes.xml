@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="Theme.AppCompat.Light.NoActionBar">
+    <style name="Theme.MyApplication" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="alertDialogTheme">@style/Theme.MyApplication.Dialog</item>
-        <item name="android:windowBackground">#F8F7FB</item>
-        <item name="android:statusBarColor">#F8F7FB</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">@color/app_canvas</item>
+        <item name="android:statusBarColor">@color/app_canvas</item>
+        <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
+        <item name="android:navigationBarColor">@color/app_surface</item>
+        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
         <item name="android:forceDarkAllowed">false</item>
         <item name="colorAccent">#7E5BDC</item>
     </style>
 
-    <style name="Theme.MyApplication.Dialog" parent="Theme.AppCompat.Light.Dialog.Alert" />
+    <style name="Theme.MyApplication.Dialog" parent="Theme.AppCompat.DayNight.Dialog.Alert" />
 </resources>

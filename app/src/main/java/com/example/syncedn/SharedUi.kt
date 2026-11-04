@@ -94,8 +94,8 @@ class CornerArt(context: Context, private val flip: Boolean) : View(context) {
     }
 }
 
-class EyeDrawable : Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(21, 22, 49); style = Paint.Style.STROKE; strokeWidth = 1.6f }
+class EyeDrawable(private val ink: Int = Color.rgb(21, 22, 49)) : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; style = Paint.Style.STROKE; strokeWidth = 1.6f }
     override fun draw(canvas: Canvas) {
         canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
             scale(bounds.width() / 24f, bounds.height() / 24f)
@@ -112,7 +112,7 @@ class EyeDrawable : Drawable() {
 
 @Suppress("ViewConstructor")
 class Symbol(context: Context, name: String, color: Int) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; style = Paint.Style.STROKE; strokeWidth = 1.6f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = AppAppearance.text(context, color); style = Paint.Style.STROKE; strokeWidth = 1.6f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val path = PathParser.createPathFromPathData(when (name) {
         "back" -> "M16,3 L6,12 L16,21"
         "camera" -> "M3,6 L8,6 L10,3 L15,3 L17,6 L22,6 L22,21 L3,21 Z M8,13 A4,4 0,1 1,16 13 A4,4 0,1 1,8 13"

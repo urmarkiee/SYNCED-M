@@ -16,7 +16,8 @@ internal object SongControlStyle {
     fun background(resources: Resources, primary: Boolean = false): InsetDrawable {
         val density = resources.displayMetrics.density
         val shape = GradientDrawable().apply {
-            setColor(if (primary) purple else Color.rgb(246, 244, 250))
+            setColor(if (primary) purple else ThemePalette.surface(Color.rgb(246, 244, 250),
+                resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES))
             cornerRadius = 12 * density
         }
         val mask = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = 12 * density }
