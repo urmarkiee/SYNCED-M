@@ -2421,22 +2421,19 @@ class AdminActivity : AppCompatActivity() {
         col.section(26).apply {
             add(text("Personal",15,navy,true));space(16)
             val appearance = horizontal().apply {
-                isClickable = true; isFocusable = true; contentDescription = "Appearance"
                 add(Symbol(this@AdminActivity, "settings", navy), 30, 30)
-                add(text("Appearance", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
-                add(text(when (AppAppearance.mode(this@AdminActivity)) {
-                    "dark" -> "Dark"; "light" -> "Light"; else -> "System"
-                }, 13, navy))
-                setOnClickListener {
-                    val modes = arrayOf("system", "light", "dark")
-                    AlertDialog.Builder(this@AdminActivity).setTitle("Appearance")
-                        .setSingleChoiceItems(arrayOf("Use system setting", "Light", "Dark"),
-                            modes.indexOf(AppAppearance.mode(this@AdminActivity))) { dialog, index ->
-                            dialog.dismiss()
-                            AppAppearance.setMode(this@AdminActivity, modes[index])
-                            navigate("settings")
-                        }.setNegativeButton("Cancel", null).show()
-                }
+                add(text("Dark mode", 14, navy, true).apply { setPadding(dp(10), 0, 0, 0) }, 0, 56, 1f)
+                add(Switch(this@AdminActivity).apply {
+                    contentDescription = "Dark mode"
+                    isChecked = AppAppearance.mode(this@AdminActivity) == "dark"
+                    val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+                    thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, Color.WHITE))
+                    trackTintList = ColorStateList(states, intArrayOf(purple, Color.rgb(140, 135, 155)))
+                    setOnCheckedChangeListener { _, checked ->
+                        AppAppearance.setMode(this@AdminActivity, if (checked) "dark" else "light")
+                        navigate("settings")
+                    }
+                }, -2, 48)
             }
             add(appearance)
             val notification=horizontal()

@@ -9,17 +9,21 @@ import androidx.core.view.WindowCompat
 /** Device appearance is separate from account preferences so signing out preserves it. */
 object AppAppearance {
     private const val PREFS = "syncedm_appearance"
-    fun mode(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .getString("mode", "system").orEmpty()
+    fun mode(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = prefs.getString("mode", "light")
+        if (saved == "dark" || saved == "light") return saved
+        // Migrate the old System option to its current appearance once.
+        val resolved = if (isDark(context)) "dark" else "light"
+        prefs.edit().putString("mode", resolved).apply()
+        return resolved
+    }
     fun apply(context: Context) {
-        AppCompatDelegate.setDefaultNightMode(when (mode(context)) {
-            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
-            "light" -> AppCompatDelegate.MODE_NIGHT_NO
-            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-        })
+        AppCompatDelegate.setDefaultNightMode(if (mode(context) == "dark")
+            AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO)
     }
     fun setMode(context: Context, mode: String) {
-        require(mode in listOf("system", "light", "dark"))
+        require(mode in listOf("light", "dark"))
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
         apply(context)
     }
