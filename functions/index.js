@@ -2,6 +2,72 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
+const db = admin.firestore();
+
+/**
+ * Send a data-only push to registered browsers. Android continues to use its
+ * team topic. Web messages are data-only so the service worker can display
+ * exactly one notification while the page is closed.
+ */
+async function sendWebPushToTeam(teamCode, notification, excludedUids = []) {
+  const code = String(teamCode || "").trim().toUpperCase();
+  if (!code) return;
+
+  const users = await db.collection("users").where("teamCode", "==", code).get();
+  const excluded = new Set(excludedUids.filter(Boolean));
+  const registrations = [];
+
+  for (const userDoc of users.docs) {
+    const profile = userDoc.data() || {};
+    if (excluded.has(userDoc.id) || profile.notificationsEnabled === false || profile.teamUnmuted === false) continue;
+
+    const tokenDocs = await userDoc.ref.collection("pushTokens").get();
+    for (const tokenDoc of tokenDocs.docs) {
+      const token = tokenDoc.get("token");
+      if (tokenDoc.get("platform") === "web" && typeof token === "string" && token.length > 0) {
+        registrations.push({ token, ref: tokenDoc.ref });
+      }
+    }
+  }
+
+  for (let offset = 0; offset < registrations.length; offset += 500) {
+    const batch = registrations.slice(offset, offset + 500);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens: batch.map((registration) => registration.token),
+      data: {
+        type: String(notification.type || "team"),
+        title: String(notification.title || "SyncedM update").slice(0, 120),
+        body: String(notification.body || "").slice(0, 1000),
+        teamCode: code,
+        url: "https://synedn.web.app/",
+      },
+      webpush: { headers: { TTL: "3600" } },
+    });
+
+    const stale = [];
+    response.responses.forEach((result, index) => {
+      if (!result.success && [
+        "messaging/registration-token-not-registered",
+        "messaging/invalid-registration-token",
+      ].includes(result.error?.code)) stale.push(batch[index].ref.delete());
+    });
+    await Promise.all(stale);
+  }
+}
+
+async function sendTeamAndroidTopic(teamCode, notification, data = {}) {
+  const code = String(teamCode || "").trim().toUpperCase();
+  if (!code) return null;
+  return admin.messaging().send({
+    notification: {
+      title: String(notification.title || "SyncedM update"),
+      body: String(notification.body || ""),
+    },
+    data: { type: String(notification.type || "team"), teamCode: code, ...data },
+    topic: `team_${code}`,
+  });
+}
+
 /**
  * 1. Send push notification for new Announcements
  */
@@ -16,20 +82,16 @@ exports.onAnnouncementCreated = functions.firestore
       : "Team Announcement";
     const message = typeof data.message === "string" ? data.message : "";
 
-    const payload = {
-      notification: {
-        title: urgent ? `🚨 URGENT: ${title}` : `📢 ${title}`,
-        body: message,
-      },
-      data: {
-        type: "announcement",
-        teamCode: teamCode,
-      },
-      topic: `team_${teamCode}`,
+    const notification = {
+      type: "announcement",
+      title: urgent ? `🚨 URGENT: ${title}` : `📢 ${title}`,
+      body: message,
     };
-
-    const messageId = await admin.messaging().send(payload);
-    console.log(`Sent announcement notification ${messageId} to topic team_${teamCode}`);
+    const [messageId] = await Promise.all([
+      sendTeamAndroidTopic(teamCode, notification),
+      sendWebPushToTeam(teamCode, notification, [data.createdBy]),
+    ]);
+    console.log(`Sent announcement notification ${messageId} to team ${teamCode}`);
     return messageId;
   });
 
@@ -67,21 +129,13 @@ exports.onServiceUpdated = functions.firestore
       return null;
     }
 
-    const payload = {
-      notification: {
-        title: notifTitle,
-        body: notifBody,
-      },
-      data: {
-        type: "service",
-        teamCode: teamCode,
-      },
-      topic: `team_${teamCode}`,
-    };
-
     try {
-      await admin.messaging().send(payload);
-      console.log(`Successfully sent service notification to topic team_${teamCode}`);
+      const notification = { type: "service", title: notifTitle, body: notifBody };
+      await Promise.all([
+        sendTeamAndroidTopic(teamCode, notification),
+        sendWebPushToTeam(teamCode, notification, [after.createdBy]),
+      ]);
+      console.log(`Successfully sent service notification to team ${teamCode}`);
     } catch (error) {
       console.error("Error sending service notification:", error);
     }
@@ -93,27 +147,23 @@ exports.onServiceUpdated = functions.firestore
 exports.onSubstitutionCreated = functions.firestore
   .document("teams/{teamCode}/substitutions/{id}")
   .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
+    const data = snapshot.data() || {};
     const teamCode = context.params.teamCode.toUpperCase();
     const requesterName = data.requesterName || "A teammate";
     const role = data.role || "";
     const serviceTitle = data.serviceTitle || "Worship Service";
 
-    const payload = {
-      notification: {
+    try {
+      const notification = {
+        type: "substitution",
         title: "🔄 New Substitution Request",
         body: `${requesterName} requested coverage for ${role} in ${serviceTitle}.`,
-      },
-      data: {
-        type: "substitution",
-        teamCode: teamCode,
-      },
-      topic: `team_${teamCode}`,
-    };
-
-    try {
-      await admin.messaging().send(payload);
-      console.log(`Successfully sent substitution notification to topic team_${teamCode}`);
+      };
+      await Promise.all([
+        sendTeamAndroidTopic(teamCode, notification),
+        sendWebPushToTeam(teamCode, notification, [data.requesterUid]),
+      ]);
+      console.log(`Successfully sent substitution notification to team ${teamCode}`);
     } catch (error) {
       console.error("Error sending substitution notification:", error);
     }
@@ -125,26 +175,18 @@ exports.onSubstitutionCreated = functions.firestore
 exports.onChatMessageCreated = functions.firestore
   .document("teams/{teamCode}/messages/{id}")
   .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
+    const data = snapshot.data() || {};
     const teamCode = context.params.teamCode.toUpperCase();
     const senderName = data.senderName || "Team Member";
     const text = data.text || "📷 Sent an image";
 
-    const payload = {
-      notification: {
-        title: `💬 ${senderName}`,
-        body: text,
-      },
-      data: {
-        type: "chat",
-        teamCode: teamCode,
-      },
-      topic: `team_${teamCode}`,
-    };
-
     try {
-      await admin.messaging().send(payload);
-      console.log(`Successfully sent chat notification to topic team_${teamCode}`);
+      const notification = { type: "chat", title: `💬 ${senderName}`, body: text };
+      await Promise.all([
+        sendTeamAndroidTopic(teamCode, notification),
+        sendWebPushToTeam(teamCode, notification, [data.senderUid]),
+      ]);
+      console.log(`Successfully sent chat notification to team ${teamCode}`);
     } catch (error) {
       console.error("Error sending chat notification:", error);
     }

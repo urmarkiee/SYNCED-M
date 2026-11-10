@@ -3,13 +3,11 @@ package com.example.syncedn
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.SeekBar
 import android.widget.TextView
 
 /** Fixed song-page footer: controls stay reachable while lyrics or chords scroll. */
@@ -18,12 +16,12 @@ internal class SheetAutoScrollControls(
     private val preferences: SharedPreferences,
     song: String,
     private var viewport: StableScrollView?,
-    private val sheet: TextView
+    private val sheet: TextView,
+    private val onTranspose: () -> Unit
 ) : LinearLayout(context) {
     private val fontKey = "sheet_font_size_$song"
-    private var fontSize = preferences.getInt(fontKey, 13).coerceIn(12, 18)
-    private lateinit var smaller: Button
-    private lateinit var larger: Button
+    private val fontMigrationKey = "sheet_font_default_18_migrated"
+    private var fontSize = preferences.getInt(fontKey, 18).coerceIn(12, 18)
     private val speedKey = "sheet_scroll_speed_$song"
     private var speed = SheetScrollClock.clampSpeed(preferences.getInt(speedKey, 3))
     private val clock = SheetScrollClock()
@@ -34,11 +32,13 @@ internal class SheetAutoScrollControls(
     private val sheetLocation = IntArray(2)
     private val scrollLocation = IntArray(2)
     private val navy = AppAppearance.text(context, Color.rgb(30, 27, 56))
-    private val fontLabel = label("${fontSize}sp", 12)
     private val status = label("Ready", 11)
-    private val speedLabel = label("Speed $speed", 12)
+    private lateinit var speedLabel: TextView
+    private lateinit var speedDown: Button
+    private lateinit var speedUp: Button
+    private lateinit var transposeButton: Button
     private val toggle = Button(context).apply {
-        text = "Start scroll"; textSize = 12f; isAllCaps = false
+        text = "Auto-scroll"; textSize = 12f; isAllCaps = false
         setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END
         setTextColor(Color.WHITE)
         background = SongControlStyle.background(resources, true)
@@ -67,47 +67,40 @@ internal class SheetAutoScrollControls(
         setBackgroundColor(AppAppearance.surface(context, Color.WHITE))
         setPadding(dp(16),dp(4),dp(16),dp(4))
         elevation = dp(1).toFloat()
+        if (!preferences.getBoolean(fontMigrationKey, false)) {
+            val editor = preferences.edit()
+            preferences.all.forEach { (key, value) ->
+                if (key.startsWith("sheet_font_size_") && value is Int) editor.putInt(key, 18)
+            }
+            editor.putBoolean(fontMigrationKey, true).apply()
+        }
+        fontSize = preferences.getInt(fontKey, 18).coerceIn(12, 18)
         sheet.textSize = fontSize.toFloat()
         preferences.edit().putInt(fontKey, fontSize).apply()
         clipChildren = true; clipToPadding = true
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(toggle, LayoutParams(dp(88),dp(48)))
-            addView(speedLabel, LayoutParams(dp(64),dp(48)))
-            addView(SeekBar(context).apply {
-                max = 9; progress = speed - 1
-                contentDescription = "Auto-scroll speed, 1 slow to 10 fast"
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
-                        speed = value + 1
-                        speedLabel.text = "Speed $speed"
-                        if (running) status.text = "Scrolling (Speed $speed)"
-                    }
-                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                    override fun onStopTrackingTouch(bar: SeekBar?) {
-                        preferences.edit().putInt(speedKey, speed).apply()
-                    }
-                })
-            }, LayoutParams(0,dp(48),1f))
-        }, LayoutParams(-1,-2))
-        addView(LinearLayout(context).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(label("Font size", 12).apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL }, LayoutParams(0,dp(48),1f))
-            smaller = fontButton("A−", "Decrease lyrics and chords font size") { changeFont(-1) }
-            larger = fontButton("A+", "Increase lyrics and chords font size") { changeFont(1) }
-            addView(smaller, LayoutParams(dp(48),dp(48)))
-            addView(fontLabel, LayoutParams(dp(56),dp(48)))
-            addView(larger, LayoutParams(dp(48),dp(48)))
-        }, LayoutParams(-1,-2))
-        addView(status.apply {
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setPadding(dp(2), 0, dp(2), dp(4))
-        }, LayoutParams(-1,-2))
-        updateFontButtons()
+            addView(toggle, LayoutParams(0,dp(44),1.05f))
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER
+                speedDown = selectorButton("−", "Decrease automatic scroll speed") { changeSpeed(-1) }
+                speedLabel = label("Speed $speed", 12).apply {
+                    contentDescription = "Auto-scroll speed $speed of 10"
+                }
+                speedUp = selectorButton("+", "Increase automatic scroll speed") { changeSpeed(1) }
+                addView(speedDown, LayoutParams(dp(34), dp(44)))
+                addView(speedLabel, LayoutParams(0, dp(44), 1f))
+                addView(speedUp, LayoutParams(dp(34), dp(44)))
+            }, LayoutParams(0,dp(44),1.15f).apply { marginStart = dp(4) })
+            transposeButton = selectorButton("Key", "Choose transpose key") { onTranspose() }
+            addView(transposeButton, LayoutParams(0,dp(44),0.9f).apply { marginStart = dp(4) })
+        }, LayoutParams(-1,dp(44)))
+        updateSpeedControls()
+        status.visibility = View.GONE
         viewport?.onManualScroll = manualScroll
     }
 
-    private fun fontButton(title: String, description: String, action: () -> Unit) = Button(context).apply {
+    private fun selectorButton(title: String, description: String, action: () -> Unit) = Button(context).apply {
         text = title; textSize = 13f; isAllCaps = false
         setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END
         contentDescription = description; typeface = SongControlStyle.font
@@ -117,20 +110,25 @@ internal class SheetAutoScrollControls(
         setOnClickListener { action() }
     }
 
-    private fun changeFont(delta: Int) {
-        pause()
-        fontSize = (fontSize + delta).coerceIn(12, 18)
-        sheet.textSize = fontSize.toFloat()
-        fontLabel.text = "${fontSize}sp"
-        preferences.edit().putInt(fontKey, fontSize).apply()
-        updateFontButtons()
+    private fun changeSpeed(delta: Int) {
+        speed = (speed + delta).coerceIn(1, 10)
+        speedLabel.text = "Speed $speed"
+        speedLabel.contentDescription = "Auto-scroll speed $speed of 10"
+        updateSpeedControls()
+        if (running) status.text = "Scrolling at speed $speed"
+        preferences.edit().putInt(speedKey, speed).apply()
     }
 
-    private fun updateFontButtons() {
-        smaller.isEnabled = fontSize > 12; larger.isEnabled = fontSize < 18
-        smaller.alpha = if (smaller.isEnabled) 1f else 0.35f
-        larger.alpha = if (larger.isEnabled) 1f else 0.35f
-        fontLabel.contentDescription = "Lyrics and chords font size $fontSize sp"
+    private fun updateSpeedControls() {
+        speedDown.isEnabled = speed > 1
+        speedUp.isEnabled = speed < 10
+        speedDown.alpha = if (speedDown.isEnabled) 1f else 0.35f
+        speedUp.alpha = if (speedUp.isEnabled) 1f else 0.35f
+    }
+
+    fun setTransposeKey(key: String) {
+        transposeButton.text = "Key $key"
+        transposeButton.contentDescription = "Current song key $key. Tap to transpose."
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -172,7 +170,7 @@ internal class SheetAutoScrollControls(
         if (maximum <= start) { pause("Entire sheet is visible"); return }
         clock.reset(start); lastFrame = SystemClock.uptimeMillis()
         running = true; keepScreenOn = true
-        toggle.text = "Pause"; status.text = "Scrolling"
+        toggle.text = "Pause scroll"; status.text = "Scrolling"
         removeCallbacks(frame); postOnAnimation(frame)
     }
 
@@ -186,7 +184,7 @@ internal class SheetAutoScrollControls(
 
     fun pause(message: String = "Paused") {
         running = false; keepScreenOn = false; removeCallbacks(frame)
-        toggle.text = "Start scroll"; status.text = message
+        toggle.text = "Auto-scroll"; status.text = message
     }
 
     fun close() {

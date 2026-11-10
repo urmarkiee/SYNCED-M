@@ -612,6 +612,19 @@ service cloud.firestore {
       allow update: if isValidOwnerUserUpdate(userId) || isLeaderManagedUserUpdate(userId);
 
       allow delete: if isOwner(userId);
+
+      match /pushTokens/{tokenId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          tokenId.matches('^[a-f0-9]{64}$') &&
+          request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt']) &&
+          request.resource.data.token is string &&
+          request.resource.data.token.size() > 0 &&
+          request.resource.data.token.size() <= 4096 &&
+          request.resource.data.platform == 'web' &&
+          request.resource.data.updatedAt is number &&
+          request.resource.data.updatedAt >= 0;
+      }
     }
 
     match /teams/{teamCode} {

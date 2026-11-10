@@ -1,0 +1,17 @@
+{
+  "name": "SyncedM — Synced in Music",
+  "short_name": "SyncedM",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f8fc",
+  "theme_color": "#f8f8fc",
+  "icons": [
+    {
+      "src": "/assets/syncedm-brand-mark-padded.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -5128,7 +5128,7 @@ space(48)
         var followingAnotherController = false
         var lastLiveScrollWrite = 0L
         fun controlsLiveSession() = liveController && !followingAnotherController
-        val sheetText = text("", 13, navy).apply {
+        val sheetText = text("", 18, navy).apply {
             if (showChords) typeface = Typeface.MONOSPACE
             includeFontPadding = true
             setLineSpacing(0f, 1.15f)
@@ -5162,18 +5162,12 @@ space(48)
         liveStartAction.visibility = if (liveController && liveRef != null) View.VISIBLE else View.GONE
         liveStopAction.visibility = View.GONE
         val key = text("", 13, purple, true)
-        val keyButtons = mutableListOf<Pair<Int, TextView>>()
         fun renderTarget(target: Int) {
             offset = (target - basePitch + 12) % 12
             val root = roots[target]
             key.text = "Key: $root${if(minor) "m" else ""}    •    $tempo BPM"
+            sheetAutoScroll?.setTransposeKey(root + if (minor) "m" else "")
             sheetText.text = ChordSheet.render(sheet, if (isVocalist) 0 else offset, !showChords, root.contains('b') || root == "F")
-            keyButtons.forEach { (pitch, button) ->
-                val selected = pitch == target
-                button.setTextColor(AppAppearance.text(this@MemberActivity, if(selected) Color.WHITE else navy))
-                button.background = SongControlStyle.background(resources, selected)
-                button.isSelected = selected
-            }
             preferences.edit().putInt("chord_transpose_$selectedSong", offset).apply()
             if (isLiveForSong() && controlsLiveSession() && !applyingLiveState) {
                 liveRef?.update(mapOf("key" to root + if (minor) "m" else "", "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
@@ -5187,39 +5181,6 @@ space(48)
             add(text("By $artistDisplay", 13, Color.rgb(123, 118, 137)))
             space(16)
             add(key)
-            if (!isVocalist) {
-                space(16)
-                key.contentDescription = "Song key. Tap to choose any of twelve keys."
-                key.isFocusable = true
-                key.setOnClickListener {
-                    AlertDialog.Builder(this@MemberActivity).setTitle("Transpose to key")
-                        .setSingleChoiceItems(roots.map { it + if(minor) "m" else "" }.toTypedArray(),
-                            (basePitch + offset) % 12) { dialog, position ->
-                            renderTarget(position); dialog.dismiss()
-                        }.setNeutralButton("Original") { _,_ -> renderTarget(basePitch) }
-                        .setNegativeButton("Cancel",null).show()
-                }
-                add(text("Transpose", 12, Color.rgb(123, 118, 137))); space(8)
-                roots.chunked(6).forEachIndexed { rowIndex, row ->
-                    if(rowIndex > 0) space(8)
-                    add(horizontal().apply {
-                        row.forEach { chord ->
-                            val pitch = ChordSheet.pitch(chord)
-                            add(text(chord + if(minor) "m" else "", 12, navy, true, true).apply {
-                                background = SongControlStyle.background(resources)
-                                contentDescription = "Transpose to $text"
-                                setOnClickListener { renderTarget(pitch) }
-                                isFocusable = true
-                                keyButtons.add(pitch to this)
-                            }, 0, 48, 1f)
-                        }
-                    })
-                }
-                add(text("Original key", 12, purple).apply {
-                    isFocusable = true
-                    setOnClickListener { renderTarget(basePitch) }
-                }, -1, 36)
-            }
         }); col.space(24)
         liveKeyAction.setOnClickListener {
             if (!controlsLiveSession()) return@setOnClickListener
@@ -5304,11 +5265,6 @@ space(48)
                 liveRef.update(mapOf("scrollRatio" to ratio, "controllerPlatform" to "android", "updatedAt" to System.currentTimeMillis()))
             }
         }
-        col.add(panel().apply {
-            val metronome = MetronomeView(this@MemberActivity, preferences, selectedSong, tempo.toIntOrNull() ?: 74)
-            songMetronome = metronome
-            add(metronome)
-        }); col.space(24)
         val refLink = currentSong?.referenceUrl.orEmpty().ifBlank { savedSong.optString("link") }
         val playerView = com.example.syncedn.ui.player.YouTubePlayerHelper.buildHybridPlayerView(
             context = this@MemberActivity,
@@ -5322,6 +5278,10 @@ space(48)
             col.space(12)
         }
 
+        val metronome = MetronomeView(this@MemberActivity, preferences, selectedSong, tempo.toIntOrNull() ?: 74)
+        songMetronome = metronome
+        col.add(metronome); col.space(12)
+
         col.add(panel().apply {
             add(text("LIVE TEAM SYNC", 10, purple, true)); space(6); add(liveStatus); space(10)
             if (liveController && liveRef != null) {
@@ -5330,9 +5290,16 @@ space(48)
             }
         }); col.space(12)
         col.add(text(if(showChords) "Lyrics & Chords Sheet" else "Lyrics", 13, navy, true)); col.space(10)
-        col.add(panel().apply { add(sheetText, -1, -2) }); col.space(24)
+        col.add(sheetText, -1, -2); col.space(24)
         sheetAutoScroll = SheetAutoScrollControls(this@MemberActivity, preferences, selectedSong,
-            col.parent as StableScrollView, sheetText)
+            col.parent as StableScrollView, sheetText) {
+            AlertDialog.Builder(this@MemberActivity).setTitle("Transpose to key")
+                .setSingleChoiceItems(roots.map { it + if (minor) "m" else "" }.toTypedArray(),
+                    (basePitch + offset) % 12) { dialog, position ->
+                    renderTarget(position); dialog.dismiss()
+                }.setNeutralButton("Original") { _, _ -> renderTarget(basePitch) }
+                .setNegativeButton("Cancel", null).show()
+        }
         sheetAutoScroll?.setLiveSyncActive(isLiveForSong())
         renderTarget((basePitch + offset) % 12)
         col.add(text("Reference Link", 13, navy, true)); col.space(8)

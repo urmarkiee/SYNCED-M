@@ -26,6 +26,11 @@ import {
   writeBatch,
   where
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import {
+  getMessaging,
+  getToken,
+  isSupported as isMessagingSupported
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-messaging.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
@@ -66,6 +71,7 @@ const state = {
   metronomeTimer: null,
   metronomeContext: null,
   notificationPrimed: new Set(),
+  webPushToken: "",
   listeners: []
 };
 let membershipSyncInProgress = false;
@@ -297,6 +303,9 @@ async function initializeSignedInWorkspace(user) {
     state.teamCode = teamCode;
     state.team = teamSnapshot.data();
     state.isLeader = hasLeaderAccess(state.profile, state.team, user);
+    if (firebaseConfig.webPushVapidKey && "Notification" in window && Notification.permission === "granted") {
+      registerBackgroundPush().catch((error) => console.warn("Background push registration failed", error));
+    }
     $("#loading-screen").classList.add("is-hidden");
     $("#auth-shell").classList.add("is-hidden");
     $("#onboarding-shell").classList.add("is-hidden");
@@ -321,7 +330,7 @@ async function initializeSignedInWorkspace(user) {
           if (event.currentTarget.isConnected) setBusy(event.currentTarget, false);
         });
       });
-      $("#workspace-sign-out").addEventListener("click", () => signOut(auth));
+      $("#workspace-sign-out").addEventListener("click", () => signOutCurrentUser());
       return;
     }
     setAuthMessage(prettyError(error));
@@ -351,6 +360,53 @@ function notifyNewFirestoreDocs(snapshot, feed, titleFor, bodyFor) {
     try { new Notification(titleFor(data), { body: bodyFor(data), icon: "./assets/syncedm-brand-mark-padded.png", tag: `${feed}-${change.doc.id}` }); }
     catch (error) { console.warn("Browser notification could not be shown", error); }
   }
+}
+
+async function webPushTokenId(token) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function registerBackgroundPush(requestPermission = false) {
+  if (!state.user?.uid || !state.teamCode) throw new Error("Sign in and join a team before enabling push notifications.");
+  if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+    throw new Error("This browser does not support background push notifications.");
+  }
+  if (!firebaseConfig.webPushVapidKey) {
+    throw new Error("Firebase Web Push is not configured yet. Add the Web Push key from Firebase Project settings.");
+  }
+  if (!(await isMessagingSupported())) throw new Error("Background push is not supported in this browser.");
+
+  let permission = Notification.permission;
+  if (requestPermission && permission !== "granted") permission = await Notification.requestPermission();
+  if (permission !== "granted") throw new Error("Allow notifications in your browser to receive team updates.");
+
+  const serviceWorkerRegistration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+  const token = await getToken(getMessaging(app), {
+    vapidKey: firebaseConfig.webPushVapidKey,
+    serviceWorkerRegistration
+  });
+  if (!token) throw new Error("The browser did not create a push registration. Check its notification settings.");
+
+  const tokenId = await webPushTokenId(token);
+  await setDoc(doc(db, "users", state.user.uid, "pushTokens", tokenId), {
+    token,
+    platform: "web",
+    updatedAt: Date.now()
+  });
+  state.webPushToken = token;
+  return token;
+}
+
+async function signOutCurrentUser() {
+  if (state.user?.uid && state.webPushToken) {
+    try {
+      await deleteDoc(doc(db, "users", state.user.uid, "pushTokens", await webPushTokenId(state.webPushToken)));
+    } catch (error) {
+      console.warn("Could not remove the signed-out browser push registration", error);
+    }
+  }
+  await signOut(auth);
 }
 
 function getNotificationItems() {
@@ -652,7 +708,9 @@ function renderSubstitutions() {
 function renderNotifications() {
   const hidden = new Set(JSON.parse(localStorage.getItem(`syncedm-dismissed-${state.user.uid}`) || "[]"));
   const items = getNotificationItems().filter((item) => !hidden.has(item.id));
-  const browserAlerts = !("Notification" in window) ? "" : Notification.permission === "granted" ? `<span class="badge">Browser alerts on</span>` : `<button class="button button-quiet" data-action="enable-browser-alerts" type="button">Enable browser alerts</button>`;
+  const browserAlerts = !("Notification" in window) ? "" : Notification.permission === "granted"
+    ? `<button class="button button-quiet" data-action="enable-browser-alerts" type="button">Enable background push</button>`
+    : `<button class="button button-quiet" data-action="enable-browser-alerts" type="button">Enable push notifications</button>`;
   setPage("Notifications", "Recent services, announcements, and cover requests.", "TEAM UPDATES", `${browserAlerts}<button class="button button-quiet" data-action="clear-notifications" type="button">Clear list</button>`);
   $("#view-root").innerHTML = `<section class="panel"><div class="item-list">${items.map((item) => `<article class="notification-row"><span class="tool-card-icon">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.text)}</small><small>${escapeHtml(item.time ? dateLabel(item.time, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Recently")}</small></span><button class="icon-button" data-action="dismiss-notification" data-id="${escapeHtml(item.id)}" aria-label="Dismiss update" type="button">×</button></article>`).join("") || `<div class="empty-state"><strong>You’re all caught up</strong>New team updates will show up here.</div>`}</div></section>`;
 }
@@ -736,7 +794,7 @@ function renderProfile() {
       setBusy(button, false);
     }
   });
-  $("#sign-out")?.addEventListener("click", () => signOut(auth));
+  $("#sign-out")?.addEventListener("click", () => signOutCurrentUser());
 }
 
 function renderView() {
@@ -1378,7 +1436,7 @@ $("#rejoin-form").addEventListener("submit", async (event) => {
   finally { setBusy(button, false); }
 });
 
-$("#onboarding-sign-out").addEventListener("click", () => signOut(auth));
+$("#onboarding-sign-out").addEventListener("click", () => signOutCurrentUser());
 $("#team-switcher").addEventListener("click", () => { if (state.teamCode) { navigator.clipboard?.writeText(state.teamCode).then(() => toast(`Invite code copied: ${state.teamCode}`, "success")).catch(() => toast(`Invite code: ${state.teamCode}`)); } });
 $("#profile-shortcut").addEventListener("click", () => goTo("profile"));
 $("#notifications-shortcut").addEventListener("click", () => goTo("notifications"));
@@ -1590,10 +1648,10 @@ document.addEventListener("click", async (event) => {
     case "enable-browser-alerts": {
       if (!("Notification" in window)) { toast("Browser alerts are not supported in this browser.", "error"); break; }
       try {
-        const permission = await Notification.requestPermission();
-        toast(permission === "granted" ? "Browser alerts enabled while SyncedM is open." : "Browser alert permission was not granted.", permission === "granted" ? "success" : "error");
+        await registerBackgroundPush(true);
+        toast("Background push notifications are enabled for this browser.", "success");
         renderView();
-      } catch (error) { toast(error.message || "Could not enable browser alerts.", "error"); }
+      } catch (error) { toast(error.message || "Could not enable background push.", "error"); }
       break;
     }
     case "delete-report":
