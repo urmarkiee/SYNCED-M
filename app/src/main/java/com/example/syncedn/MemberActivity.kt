@@ -3900,21 +3900,68 @@ space(48)
         return root
     }
     private fun serviceView(): View = memberPage("Service", serviceReturnPage, "Schedule") { col ->
-        col.add(panel(null).apply {
-            background = bg(Color.rgb(192, 221, 245), 18)
-            add(text(selectedService, 16, navy, true)); space(8)
-            add(text(preferences.getString("serviceDate", "SEPT 6").orEmpty(), 12, navy)); space(4)
-            add(text(preferences.getString("serviceTime", "6:00AM – 11:00AM").orEmpty(), 13, navy))
-            space(4); add(text(preferences.getString("serviceVenue", if (selectedService == "Team Meeting") "Fellowship Hall" else "Main Sanctuary").orEmpty(), 13, navy))
-        }); col.space(16)
-        col.add(dualButtons("Songs", { songsReturnPage = "service"; navigate("songs") }, "Song Lineups", { navigate("lineup") }))
-        col.space(24)
-        col.add(text("Assigned Members and their Roles", 13, navy)); col.space(12)
         val currentSheetService = selectedSheetService?.let { sel ->
             val sid = sel.optString("id")
             storedServices().find { it.optString("id") == sid } ?: sel
         } ?: selectedSheetService
         val assignments = currentSheetService?.optJSONArray("assignments")
+        val authUid = AuthManager.currentUser?.uid.orEmpty()
+        val currentUid = authUid.ifBlank { preferences.getString("userId", "").orEmpty() }
+        val currentName = fullName.ifBlank { displayName }
+        var isUserAssigned = false
+        var isAssignedWorshipLeader = false
+        if (assignments != null) {
+            for (i in 0 until assignments.length()) {
+                val assignment = assignments.optJSONObject(i) ?: continue
+                val assignedUid = assignment.optString("uid").ifBlank { assignment.optString("userId") }
+                val assignedName = assignment.optString("name")
+                val isCurrentUser = currentUid.isNotBlank() && assignedUid == currentUid
+                if (isCurrentUser || (currentName.isNotBlank() && assignedName.equals(currentName, ignoreCase = true))) {
+                    isUserAssigned = true
+                }
+                if (authUid.isNotBlank() && assignedUid == authUid &&
+                    assignment.optString("role").equals("Worship Leader", ignoreCase = true)) {
+                    isAssignedWorshipLeader = true
+                }
+            }
+        }
+        val editorUids = currentSheetService?.optJSONArray("worshipLeaderUids")
+        val canEditSchedule = currentSheetService?.optString("id").orEmpty().isNotBlank() &&
+            authUid.isNotBlank() && isAssignedWorshipLeader && editorUids != null &&
+            (0 until editorUids.length()).any { editorUids.optString(it) == authUid }
+        val serviceTitle = currentSheetService?.optString("title")?.ifBlank { selectedService } ?: selectedService
+        val serviceDate = currentSheetService?.optString("date")?.ifBlank {
+            preferences.getString("serviceDate", "SEPT 6")
+        } ?: preferences.getString("serviceDate", "SEPT 6").orEmpty()
+        val serviceStart = currentSheetService?.optString("start").orEmpty()
+        val serviceEnd = currentSheetService?.optString("end").orEmpty()
+        val serviceTime = if (serviceStart.isNotBlank() && serviceEnd.isNotBlank()) {
+            "${formatServiceTime(serviceStart)} – ${formatServiceTime(serviceEnd)}"
+        } else preferences.getString("serviceTime", "6:00AM – 11:00AM").orEmpty()
+        val serviceVenue = currentSheetService?.optString("venue")?.ifBlank {
+            preferences.getString("serviceVenue", if (serviceTitle == "Team Meeting") "Fellowship Hall" else "Main Sanctuary")
+        } ?: preferences.getString("serviceVenue", if (serviceTitle == "Team Meeting") "Fellowship Hall" else "Main Sanctuary").orEmpty()
+
+        col.add(panel(null).apply {
+            background = bg(Color.rgb(192, 221, 245), 18)
+            add(text(serviceTitle, 16, navy, true)); space(8)
+            add(text(serviceDate, 12, navy)); space(4)
+            add(text(serviceTime, 13, navy))
+            space(4); add(text(serviceVenue, 13, navy))
+        }); col.space(16)
+        if (isAssignedWorshipLeader) {
+            if (canEditSchedule) {
+                col.add(memberButton("Edit Service Schedule") {
+                    currentSheetService?.let { showAssignedServiceScheduleEditor(it) }
+                }, -1, 48)
+            } else {
+                col.add(text("Ask your team leader to save this service once to enable secure schedule editing.", 12, Color.GRAY))
+            }
+            col.space(12)
+        }
+        col.add(dualButtons("Songs", { songsReturnPage = "service"; navigate("songs") }, "Song Lineups", { navigate("lineup") }))
+        col.space(24)
+        col.add(text("Assigned Members and their Roles", 13, navy)); col.space(12)
         if (assignments != null && assignments.length() > 0) {
             repeat(assignments.length()) { index ->
                 val item = assignments.getJSONObject(index)
@@ -3939,23 +3986,6 @@ space(48)
         val todayDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
         val isServicePast = sDate.isNotBlank() && sDate < todayDate
 
-        var isUserAssigned = false
-        val currentUid = com.example.syncedn.data.auth.AuthManager.currentUser?.uid?.takeIf { it.isNotBlank() }
-            ?: preferences.getString("userId", "").orEmpty()
-        val currentName = fullName.ifBlank { displayName }
-        if (assignments != null) {
-            for (i in 0 until assignments.length()) {
-                val a = assignments.getJSONObject(i)
-                val aUid = a.optString("uid").ifBlank { a.optString("userId") }
-                val aName = a.optString("name")
-                if ((currentUid.isNotBlank() && aUid == currentUid) ||
-                    (currentName.isNotBlank() && aName.equals(currentName, ignoreCase = true))) {
-                    isUserAssigned = true
-                    break
-                }
-            }
-        }
-
         col.space(28)
         col.add(memberButton("💬 Share to Messenger Group", Color.rgb(0, 132, 255)) {
             shareServiceToMessenger(selectedSheetService)
@@ -3970,6 +4000,146 @@ space(48)
                 navigate("substitution")
             }, -1, 48)
         }
+    }
+
+    private fun showAssignedServiceScheduleEditor(serviceRecord: org.json.JSONObject) {
+        val activeCode = preferences.getString(SessionManager.KEY_TEAM_CODE, "").orEmpty()
+            .ifBlank { preferences.getString("teamCode", "").orEmpty() }
+        val serviceId = serviceRecord.optString("id")
+        val uid = AuthManager.currentUser?.uid.orEmpty()
+        val original = TeamRepository.getCachedServices(activeCode, preferences)
+            .firstOrNull { it.id == serviceId }
+
+        // Recheck the assignment before opening the editor; Firestore rules also enforce it on save.
+        val isAssignedLeader = original != null && uid.isNotBlank() &&
+            original.worshipLeaderUids.contains(uid) &&
+            original.assignments.any {
+                it.uid == uid && it.role.equals("Worship Leader", ignoreCase = true)
+            }
+        if (activeCode.isBlank() || original == null || !isAssignedLeader) {
+            toast("Only the Worship Leader assigned to this service can edit its schedule.")
+            return
+        }
+
+        val form = vertical().apply { setPadding(dp(20), dp(8), dp(20), dp(4)) }
+        val titleInput = plainInput("Service title").apply { setText(original.title) }
+        val venueInput = plainInput("Venue").apply { setText(original.venue) }
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { isLenient = false }
+        val validDate = original.date.takeIf { raw ->
+            raw.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) && runCatching { dateFormat.parse(raw) }.isSuccess
+        } ?: dateFormat.format(java.util.Date())
+        val dateInput = dateField(validDate)
+
+        fun normalizedTime(value: String, fallback: String): String = value.takeIf {
+            it.matches(Regex("\\d{2}:\\d{2}")) &&
+                it.substring(0, 2).toIntOrNull()?.let { hour -> hour in 0..23 } == true &&
+                it.substring(3, 5).toIntOrNull()?.let { minute -> minute in 0..59 } == true
+        } ?: fallback
+        var startTime = normalizedTime(original.start, "09:00")
+        var endTime = normalizedTime(original.end, "10:00")
+        fun timeInput(label: String, onSelected: (String) -> Unit): TextView =
+            text("$label  ${formatServiceTime(if (label == "Start") startTime else endTime)}", 14, navy, true).apply {
+                background = bg(Color.rgb(242, 242, 245), 10, Color.LTGRAY)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                isClickable = true
+                setOnClickListener {
+                    val selected = if (label == "Start") startTime else endTime
+                    val parts = selected.split(":")
+                    android.app.TimePickerDialog(
+                        this@MemberActivity,
+                        { _, hour, minute ->
+                            val chosen = "%02d:%02d".format(java.util.Locale.US, hour, minute)
+                            text = "$label  ${formatServiceTime(chosen)}"
+                            onSelected(chosen)
+                        },
+                        parts[0].toIntOrNull() ?: 9,
+                        parts[1].toIntOrNull() ?: 0,
+                        false
+                    ).show()
+                }
+            }
+        val startInput = timeInput("Start") { startTime = it }
+        val endInput = timeInput("End") { endTime = it }
+
+        fun addField(label: String, field: View) {
+            form.addView(text(label, 12, navy, true), LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(6)
+            })
+            form.addView(field, LinearLayout.LayoutParams(-1, dp(48)).apply {
+                bottomMargin = dp(14)
+            })
+        }
+        addField("Service title", titleInput)
+        addField("Date", dateInput)
+        addField("Start time", startInput)
+        addField("End time", endInput)
+        addField("Venue", venueInput)
+
+        val formScroll = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+            addView(form, FrameLayout.LayoutParams(-1, -2))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Edit Service Schedule")
+            .setView(formScroll)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleInput.text.toString().trim()
+                val date = dateInput.text.toString().trim()
+                val venue = venueInput.text.toString().trim()
+                if (title.isBlank() || title.length > 100) {
+                    titleInput.error = "Enter a title (up to 100 characters)"
+                    return@setOnClickListener
+                }
+                if (!date.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) ||
+                    runCatching { dateFormat.parse(date) }.isFailure) {
+                    toast("Choose a valid service date.")
+                    return@setOnClickListener
+                }
+                if (startTime >= endTime) {
+                    toast("End time must be later than start time.")
+                    return@setOnClickListener
+                }
+                if (venue.isBlank() || venue.length > 100) {
+                    venueInput.error = "Enter a venue (up to 100 characters)"
+                    return@setOnClickListener
+                }
+
+                val updated = original.copy(
+                    title = title,
+                    date = date,
+                    start = startTime,
+                    end = endTime,
+                    venue = venue,
+                    updatedAt = System.currentTimeMillis()
+                )
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                TeamRepository.saveService(activeCode, updated, preferences) { result ->
+                    runOnUiThread {
+                        result.onSuccess {
+                            selectedSheetService = org.json.JSONObject(updated.toMap())
+                            selectedService = updated.title
+                            preferences.edit()
+                                .putString("serviceDate", updated.date)
+                                .putString("serviceTime", "${formatServiceTime(updated.start)} – ${formatServiceTime(updated.end)}")
+                                .putString("serviceVenue", updated.venue)
+                                .apply()
+                            dialog.dismiss()
+                            toast("Service schedule updated.")
+                            navigate("service")
+                        }.onFailure {
+                            TeamRepository.saveServiceLocally(activeCode, original, preferences)
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                            toast("Could not save schedule. Check your connection and team access.")
+                        }
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun shareServiceToMessenger(serviceObj: org.json.JSONObject?) {

@@ -240,6 +240,13 @@ service cloud.firestore {
         request.auth.uid in get(/databases/$(database)/documents/teams/$(teamCode)/services/$(serviceId)).data.get('liveControllerUids', []);
     }
 
+    // Only a UID assigned as Worship Leader for this service can edit its schedule.
+    function isAssignedWorshipLeader(serviceData) {
+      return isAuthenticated() && serviceData is map &&
+        serviceData.get('worshipLeaderUids', []) is list &&
+        request.auth.uid in serviceData.get('worshipLeaderUids', []);
+    }
+
     function isValidLiveSession(data, teamCode, serviceId) {
       return data.keys().hasOnly([
           'teamCode', 'serviceId', 'active', 'songId', 'songTitle',
@@ -442,7 +449,7 @@ service cloud.firestore {
     function isValidService(data, serviceId, teamCode) {
       return hasOnlyAllowedFields(data, [
         'id', 'teamCode', 'title', 'date', 'start', 'end', 'venue',
-        'status', 'coverImageUrl', 'assignments', 'assignedMemberUids', 'liveControllerUids', 'rehearsal', 'songs', 'createdBy',
+        'status', 'coverImageUrl', 'assignments', 'worshipLeaderUids', 'assignedMemberUids', 'liveControllerUids', 'rehearsal', 'songs', 'createdBy',
         'createdAt', 'updatedAt'
       ]) &&
       hasRequiredFields(data, ['id', 'teamCode', 'title', 'date', 'start', 'end', 'venue', 'status', 'createdBy']) &&
@@ -456,6 +463,7 @@ service cloud.firestore {
       data.status is string && data.status in ['Draft', 'Published'] &&
       (!('coverImageUrl' in data) || (data.coverImageUrl is string && data.coverImageUrl.size() <= 1000)) &&
       (!('assignments' in data) || (data.assignments is list && data.assignments.size() <= 50)) &&
+      (!('worshipLeaderUids' in data) || (data.worshipLeaderUids is list && data.worshipLeaderUids.size() <= 50)) &&
       (!('assignedMemberUids' in data) || (data.assignedMemberUids is list && data.assignedMemberUids.size() <= 50)) &&
       (!('liveControllerUids' in data) || (data.liveControllerUids is list && data.liveControllerUids.size() <= 50 && data.liveControllerUids.hasOnly(data.get('assignedMemberUids', [])))) &&
       (!('rehearsal' in data) || data.rehearsal is map) &&
@@ -646,9 +654,19 @@ service cloud.firestore {
         allow create: if isLeaderOfTeam(teamCode) &&
           isValidService(request.resource.data, serviceId, teamCode) &&
           request.resource.data.createdBy == request.auth.uid;
-        allow update: if isLeaderOfTeam(teamCode) &&
-          isValidService(request.resource.data, serviceId, teamCode) &&
-          areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']);
+        allow update: if isValidService(request.resource.data, serviceId, teamCode) &&
+          areImmutableFieldsUnchanged(['id', 'teamCode', 'createdBy', 'createdAt']) &&
+          (
+            isLeaderOfTeam(teamCode) ||
+            (
+              isSameTeam(teamCode) &&
+              isAssignedWorshipLeader(resource.data) &&
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['title', 'date', 'start', 'end', 'venue', 'updatedAt']) &&
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['title', 'date', 'start', 'end', 'venue'])
+            )
+          );
         allow delete: if isLeaderOfTeam(teamCode);
       }
 

@@ -11,6 +11,7 @@ data class ServiceData(
     val status: String = "Draft",       // "Draft" or "Published"
     val coverImageUrl: String = "",
     val assignments: List<ServiceAssignment> = emptyList(),
+    val worshipLeaderUids: List<String> = emptyList(),
     val rehearsal: RehearsalData = RehearsalData(),
     val songs: List<ServiceSong> = emptyList(),
     val createdBy: String = "",         // Leader UID
@@ -28,6 +29,7 @@ data class ServiceData(
         "status" to status,
         "coverImageUrl" to coverImageUrl,
         "assignments" to assignments.map { it.toMap() },
+        "worshipLeaderUids" to worshipLeaderUids,
         "assignedMemberUids" to assignments.map { it.uid.trim() }.filter { it.isNotBlank() }.distinct(),
         "liveControllerUids" to assignments.filter { assignment ->
             assignment.uid.isNotBlank() && Regex("(?i)\\b(worship leader|leader|vocal\\w*|sing\\w*|choir|chorus|voice)\\b").containsMatchIn(assignment.role)
@@ -72,6 +74,8 @@ data class ServiceData(
                 status = map["status"] as? String ?: "Draft",
                 coverImageUrl = map["coverImageUrl"] as? String ?: "",
                 assignments = assignmentsList,
+                worshipLeaderUids = (map["worshipLeaderUids"] as? List<*>)
+                    ?.filterIsInstance<String>()?.distinct().orEmpty(),
                 rehearsal = RehearsalData.fromMap(rehearsalMap),
                 songs = songsList,
                 createdBy = map["createdBy"] as? String ?: "",

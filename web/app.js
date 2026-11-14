@@ -476,9 +476,10 @@ function startTeamListeners() {
         const data = item.data();
         const assignments = Array.isArray(data.assignments) ? data.assignments : [];
         const assignedMemberUids = [...new Set(assignments.map((assignment) => assignment.uid).filter((uid) => typeof uid === "string" && uid))];
+        const worshipLeaderUids = [...new Set(assignments.filter((assignment) => /^worship leader$/i.test(String(assignment.role || "").trim())).map((assignment) => assignment.uid).filter((uid) => typeof uid === "string" && uid))];
         const liveControllerUids = [...new Set(assignments.filter((assignment) => /\b(worship leader|leader|vocal\w*|sing\w*|choir|chorus|voice)\b/i.test(assignment.role || "")).map((assignment) => assignment.uid).filter((uid) => typeof uid === "string" && uid))];
-        if (JSON.stringify(data.assignedMemberUids || []) !== JSON.stringify(assignedMemberUids) || JSON.stringify(data.liveControllerUids || []) !== JSON.stringify(liveControllerUids)) {
-          updateDoc(doc(db, "teams", code, "services", item.id), { assignedMemberUids, liveControllerUids }).catch((error) => console.warn("Could not update Live service roster", error));
+        if (JSON.stringify(data.assignedMemberUids || []) !== JSON.stringify(assignedMemberUids) || JSON.stringify(data.worshipLeaderUids || []) !== JSON.stringify(worshipLeaderUids) || JSON.stringify(data.liveControllerUids || []) !== JSON.stringify(liveControllerUids)) {
+          updateDoc(doc(db, "teams", code, "services", item.id), { assignedMemberUids, worshipLeaderUids, liveControllerUids }).catch((error) => console.warn("Could not update service assignment access", error));
         }
       });
     }
@@ -1151,10 +1152,42 @@ function editService(service) {
     const payload = {
       title: clean(values.title).slice(0, 100), date: clean(values.date), start: clean(values.start), end: clean(values.end), venue: clean(values.venue).slice(0, 100),
       status: values.status === "Draft" ? "Draft" : "Published", songs, assignments, assignedMemberUids, liveControllerUids, coverImageUrl,
+      worshipLeaderUids: [...new Set(assignments.filter((item) => /^worship leader$/i.test(item.role)).map((item) => item.uid).filter(Boolean))],
       rehearsal: { date: clean(values.rehearsalDate), start: clean(values.rehearsalStart), end: clean(values.rehearsalEnd), venue: clean(values.rehearsalVenue).slice(0, 100), notes: clean(values.rehearsalNotes).slice(0, 2000) }, updatedAt: Date.now()
     };
     if (service) await updateDoc(doc(db, "teams", state.teamCode, "services", service.id), payload);
     else { const ref = doc(collection(db, "teams", state.teamCode, "services")); await setDoc(ref, { ...payload, id: ref.id, teamCode: state.teamCode, createdBy: state.user.uid, createdAt: Date.now() }); }
+  });
+}
+
+function editAssignedServiceSchedule(service) {
+  const uid = state.user?.uid;
+  const isAssignedWorshipLeader = !!uid &&
+    (service.assignments || []).some((item) => item.uid === uid && /^worship leader$/i.test(clean(item.role))) &&
+    (service.worshipLeaderUids || []).includes(uid);
+  if (!isAssignedWorshipLeader) {
+    toast("Only the Worship Leader assigned to this service can edit its schedule.", "error");
+    return;
+  }
+  const fields = [
+    { name: "title", label: "Service name", required: true, maxLength: 100, value: service.title || "" },
+    { name: "date", label: "Date", type: "date", required: true, value: service.date || new Date().toISOString().slice(0, 10) },
+    { name: "start", label: "Start time", type: "time", required: true, value: service.start || "09:00" },
+    { name: "end", label: "End time", type: "time", required: true, value: service.end || "10:30" },
+    { name: "venue", label: "Venue", required: true, maxLength: 100, value: service.venue || "" }
+  ];
+  openModal("Edit service schedule", "Update the schedule for the service you are assigned to lead.", fields, "Save schedule", async (values) => {
+    const title = clean(values.title).slice(0, 100);
+    const venue = clean(values.venue).slice(0, 100);
+    const start = clean(values.start);
+    const end = clean(values.end);
+    if (!title || !venue || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end) || start >= end) {
+      throw new Error("Enter a title, venue, and a valid time range.");
+    }
+    await updateDoc(doc(db, "teams", state.teamCode, "services", service.id), {
+      title, date: clean(values.date), start, end, venue, updatedAt: Date.now()
+    });
+    toast("Service schedule updated.", "success");
   });
 }
 
@@ -1167,9 +1200,11 @@ function openService(service) {
     return member && (member.unavailableRanges || []).some((range) => range.startDate && range.endDate && service.date >= range.startDate && service.date <= range.endDate);
   });
   const rehearsal = service.rehearsal || {};
+  const assignedWorshipLeader = (service.assignments || []).some((item) => item.uid === state.user?.uid && /^worship leader$/i.test(clean(item.role)));
+  const canEditAssignedSchedule = assignedWorshipLeader && (service.worshipLeaderUids || []).includes(state.user?.uid);
   const songMarkup = songs.length ? `<ul>${songs.map((title) => `<li>${escapeHtml(title)}</li>`).join("")}</ul>` : `<p class="muted">No songs added yet.</p>`;
   const coverMarkup = /^https:\/\//i.test(service.coverImageUrl || "") ? `<img class="service-cover" src="${escapeHtml(service.coverImageUrl)}" alt="Cover for ${escapeHtml(service.title || "service")}" loading="lazy">` : "";
-  $("#modal-content").innerHTML = `<p class="eyebrow">${escapeHtml(service.status || "SERVICE")}</p><h2>${escapeHtml(service.title || "Worship service")}</h2><p class="modal-intro">${escapeHtml(dateLabel(service.date, { weekday: "long", month: "long", day: "numeric", year: "numeric" }))} · ${escapeHtml(service.start ? timeLabel(service.start) : "Time TBD")} – ${escapeHtml(service.end ? timeLabel(service.end) : "")} · ${escapeHtml(service.venue || "Location to be announced")}</p>${coverMarkup}<div class="modal-detail"><div><strong>Setlist</strong>${songMarkup}</div><div><strong>Team assignments</strong>${assignments.length ? `<ul>${assignments.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : `<p class="muted">No assignments yet.</p>`}</div>${conflicts.length ? `<div class="conflict-note"><strong>Availability conflict</strong><p>${conflicts.map((item) => escapeHtml(item.name || "A team member")).join(", ")} marked unavailable on this date.</p></div>` : ""}<div><strong>Rehearsal</strong><p>${rehearsal.date ? `${escapeHtml(dateLabel(rehearsal.date, { weekday: "long", month: "long", day: "numeric" }))}${rehearsal.start ? ` · ${escapeHtml(timeLabel(rehearsal.start))}` : ""}${rehearsal.end ? `–${escapeHtml(timeLabel(rehearsal.end))}` : ""}${rehearsal.venue ? ` · ${escapeHtml(rehearsal.venue)}` : ""}` : "No rehearsal planned."}${rehearsal.notes ? `<br>${escapeHtml(rehearsal.notes)}` : ""}</p></div></div><div class="modal-actions"><button class="button button-quiet" data-action="view-lineup" data-id="${escapeHtml(service.id)}" type="button">View full lineup</button>${state.isLeader ? `<button class="button button-quiet" data-action="delete-service" data-id="${escapeHtml(service.id)}" type="button">Delete</button><button class="button button-quiet" data-action="edit-service" data-id="${escapeHtml(service.id)}" type="button">Edit plan</button>` : ""}<button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`;
+  $("#modal-content").innerHTML = `<p class="eyebrow">${escapeHtml(service.status || "SERVICE")}</p><h2>${escapeHtml(service.title || "Worship service")}</h2><p class="modal-intro">${escapeHtml(dateLabel(service.date, { weekday: "long", month: "long", day: "numeric", year: "numeric" }))} · ${escapeHtml(service.start ? timeLabel(service.start) : "Time TBD")} – ${escapeHtml(service.end ? timeLabel(service.end) : "")} · ${escapeHtml(service.venue || "Location to be announced")}</p>${coverMarkup}<div class="modal-detail"><div><strong>Setlist</strong>${songMarkup}</div><div><strong>Team assignments</strong>${assignments.length ? `<ul>${assignments.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : `<p class="muted">No assignments yet.</p>`}</div>${conflicts.length ? `<div class="conflict-note"><strong>Availability conflict</strong><p>${conflicts.map((item) => escapeHtml(item.name || "A team member")).join(", ")} marked unavailable on this date.</p></div>` : ""}<div><strong>Rehearsal</strong><p>${rehearsal.date ? `${escapeHtml(dateLabel(rehearsal.date, { weekday: "long", month: "long", day: "numeric" }))}${rehearsal.start ? ` · ${escapeHtml(timeLabel(rehearsal.start))}` : ""}${rehearsal.end ? `–${escapeHtml(timeLabel(rehearsal.end))}` : ""}${rehearsal.venue ? ` · ${escapeHtml(rehearsal.venue)}` : ""}` : "No rehearsal planned."}${rehearsal.notes ? `<br>${escapeHtml(rehearsal.notes)}` : ""}</p></div></div><div class="modal-actions"><button class="button button-quiet" data-action="view-lineup" data-id="${escapeHtml(service.id)}" type="button">View full lineup</button>${state.isLeader ? `<button class="button button-quiet" data-action="delete-service" data-id="${escapeHtml(service.id)}" type="button">Delete</button><button class="button button-quiet" data-action="edit-service" data-id="${escapeHtml(service.id)}" type="button">Edit plan</button>` : canEditAssignedSchedule ? `<button class="button button-quiet" data-action="edit-assigned-schedule" data-id="${escapeHtml(service.id)}" type="button">Edit schedule</button>` : assignedWorshipLeader ? `<span class="muted">Ask your team leader to save this service once to enable secure schedule editing.</span>` : ""}<button class="button button-primary" data-action="close-modal" type="button">Done</button></div>`;
   $("#modal").showModal();
 }
 
@@ -1602,6 +1637,11 @@ document.addEventListener("click", async (event) => {
     case "edit-service": {
       const service = state.services.find((item) => item.id === action.dataset.id);
       if (service && state.isLeader) { $("#modal").close(); editService(service); }
+      break;
+    }
+    case "edit-assigned-schedule": {
+      const service = state.services.find((item) => item.id === action.dataset.id);
+      if (service) { $("#modal").close(); editAssignedServiceSchedule(service); }
       break;
     }
     case "calendar-prev": state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() - 1, 1); renderView(); break;

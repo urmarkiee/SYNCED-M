@@ -3922,6 +3922,9 @@ class AdminActivity : AppCompatActivity() {
                 coverImageUrl = leaderDraft.optString("coverImageUrl"),
                 status = status,
                 assignments = assignmentsList,
+                worshipLeaderUids = assignmentsList
+                    .filter { it.role.equals("Worship Leader", ignoreCase = true) }
+                    .map { it.uid.trim() }.filter { it.isNotBlank() }.distinct(),
                 rehearsal = rehearsalData,
                 songs = songsList,
                 createdBy = existingCreatedBy,
