@@ -24,3 +24,4 @@ Synced_N.apk
 build/
 **/build/
 .idea/
+.npm-cache-temp/
