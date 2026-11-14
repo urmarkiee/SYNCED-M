@@ -3957,6 +3957,10 @@ space(48)
         }
 
         col.space(28)
+        col.add(memberButton("💬 Share to Messenger Group", Color.rgb(0, 132, 255)) {
+            shareServiceToMessenger(selectedSheetService)
+        }, -1, 48)
+        col.space(12)
         if (isServicePast) {
             col.add(text("Service has ended • Substitution closed", 12, Color.rgb(123, 118, 137), centered = true))
         } else {
@@ -3965,6 +3969,77 @@ space(48)
                 substitutionType = if (isUserAssigned) "Exclusion" else "Inclusion"
                 navigate("substitution")
             }, -1, 48)
+        }
+    }
+
+    private fun shareServiceToMessenger(serviceObj: org.json.JSONObject?) {
+        val sObj = serviceObj ?: selectedSheetService
+        val title = sObj?.optString("title")?.ifBlank { selectedService } ?: selectedService
+        val date = sObj?.optString("date")?.ifBlank { preferences.getString("serviceDate", "TBD") } ?: preferences.getString("serviceDate", "TBD").orEmpty()
+        val time = preferences.getString("serviceTime", "6:00AM – 11:00AM").orEmpty()
+        val venue = sObj?.optString("venue")?.ifBlank { preferences.getString("serviceVenue", "Main Sanctuary") } ?: preferences.getString("serviceVenue", "Main Sanctuary").orEmpty()
+
+        val sb = StringBuilder()
+        sb.append("🎵 *SYNCED-M WORSHIP SCHEDULE* 🎵\n\n")
+        sb.append("📌 *$title*\n")
+        sb.append("📅 $date ($time)\n")
+        sb.append("📍 $venue\n\n")
+
+        val songsArr = sObj?.optJSONArray("songs")
+        val songsList = mutableListOf<String>()
+        if (songsArr != null && songsArr.length() > 0) {
+            for (i in 0 until songsArr.length()) {
+                val s = songsArr.get(i)
+                if (s is String) {
+                    if (s.isNotBlank()) songsList.add(s)
+                } else if (s is org.json.JSONObject) {
+                    val songObj = com.example.syncedn.data.model.ServiceSong.unpack(s)
+                    val keyInfo = if (songObj.key.isNotBlank()) " (Key ${songObj.key})" else ""
+                    songsList.add("${songObj.title}$keyInfo")
+                }
+            }
+        }
+
+        if (songsList.isNotEmpty()) {
+            sb.append("🎶 *SONG LINEUP (${songsList.size})*:\n")
+            songsList.forEachIndexed { idx, song ->
+                sb.append("${idx + 1}. $song\n")
+            }
+            sb.append("\n")
+        }
+
+        val assignmentsArr = sObj?.optJSONArray("assignments")
+        if (assignmentsArr != null && assignmentsArr.length() > 0) {
+            sb.append("👥 *ASSIGNED ROSTER (${assignmentsArr.length()})*:\n")
+            for (i in 0 until assignmentsArr.length()) {
+                val item = assignmentsArr.optJSONObject(i) ?: continue
+                val name = item.optString("name")
+                val role = item.optString("role")
+                if (name.isNotBlank()) {
+                    sb.append("• ${role.ifBlank { "Member" }}: $name\n")
+                }
+            }
+            sb.append("\n")
+        }
+
+        sb.append("📲 Sent via SyncedM Worship App")
+
+        val formattedMessage = sb.toString()
+
+        val messengerIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, formattedMessage)
+            setPackage("com.facebook.orca")
+        }
+
+        try {
+            startActivity(messengerIntent)
+        } catch (_: Exception) {
+            val chooserIntent = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, formattedMessage)
+            }, "Share Schedule to Messenger")
+            startActivity(chooserIntent)
         }
     }
     private fun substitutionView(): View = memberPage(if (substitutionType == "Inclusion") "Request Inclusion" else "Request Exclusion", "service") { col ->

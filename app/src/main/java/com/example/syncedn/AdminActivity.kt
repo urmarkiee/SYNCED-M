@@ -3516,6 +3516,94 @@ class AdminActivity : AppCompatActivity() {
             else { saveLeaderDraft(); navigate(if (serviceWizard) "adminLineup" else "service") }
         }
     }
+
+    private fun shareServiceToMessenger(serviceObj: org.json.JSONObject) {
+        val title = serviceObj.optString("title", "Sunday Worship Service").ifBlank { "Worship Service" }
+        val date = serviceObj.optString("date").ifBlank { "TBD" }
+        val startTime = leaderTime(serviceObj.optString("start"))
+        val endTime = leaderTime(serviceObj.optString("end"))
+        val venue = serviceObj.optString("venue").ifBlank { "Sanctuary" }
+
+        val sb = StringBuilder()
+        sb.append("🎵 *SYNCED-M WORSHIP SCHEDULE* 🎵\n\n")
+        sb.append("📌 *$title*\n")
+        sb.append("📅 $date ($startTime – $endTime)\n")
+        sb.append("📍 $venue\n\n")
+
+        val songsArr = serviceObj.optJSONArray("songs") ?: draftSongs()
+        val songsList = mutableListOf<String>()
+        if (songsArr != null && songsArr.length() > 0) {
+            for (i in 0 until songsArr.length()) {
+                val s = songsArr.get(i)
+                if (s is String) {
+                    if (s.isNotBlank()) songsList.add(s)
+                } else if (s is org.json.JSONObject) {
+                    val songObj = com.example.syncedn.data.model.ServiceSong.unpack(s)
+                    val keyInfo = if (songObj.key.isNotBlank()) " (Key ${songObj.key})" else ""
+                    songsList.add("${songObj.title}$keyInfo")
+                }
+            }
+        } else if (lineupSongs.isNotEmpty()) {
+            songsList.addAll(lineupSongs)
+        }
+
+        if (songsList.isNotEmpty()) {
+            sb.append("🎶 *SONG LINEUP (${songsList.size})*:\n")
+            songsList.forEachIndexed { idx, song ->
+                sb.append("${idx + 1}. $song\n")
+            }
+            sb.append("\n")
+        }
+
+        val assignmentsArr = serviceObj.optJSONArray("assignments") ?: draftAssignments()
+        if (assignmentsArr != null && assignmentsArr.length() > 0) {
+            sb.append("👥 *ASSIGNED ROSTER (${assignmentsArr.length()})*:\n")
+            for (i in 0 until assignmentsArr.length()) {
+                val item = assignmentsArr.optJSONObject(i) ?: continue
+                val name = item.optString("name")
+                val role = item.optString("role")
+                if (name.isNotBlank()) {
+                    sb.append("• ${role.ifBlank { "Member" }}: $name\n")
+                }
+            }
+            sb.append("\n")
+        }
+
+        val rehearsalDate = serviceObj.optString("rehearsalDate")
+        val rehearsalStart = serviceObj.optString("rehearsalStart")
+        val rehearsalEnd = serviceObj.optString("rehearsalEnd")
+        val rehearsalVenue = serviceObj.optString("rehearsalVenue")
+        if (rehearsalDate.isNotBlank() || rehearsalVenue.isNotBlank()) {
+            sb.append("⏰ *REHEARSAL*:\n")
+            if (rehearsalDate.isNotBlank()) {
+                val rTime = if (rehearsalStart.isNotBlank()) " (${leaderTime(rehearsalStart)} – ${leaderTime(rehearsalEnd)})" else ""
+                sb.append("📅 $rehearsalDate$rTime\n")
+            }
+            if (rehearsalVenue.isNotBlank()) sb.append("📍 $rehearsalVenue\n")
+            sb.append("\n")
+        }
+
+        sb.append("📲 Sent via SyncedM Worship App")
+
+        val formattedMessage = sb.toString()
+
+        val messengerIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, formattedMessage)
+            setPackage("com.facebook.orca")
+        }
+
+        try {
+            startActivity(messengerIntent)
+        } catch (_: Exception) {
+            val chooserIntent = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, formattedMessage)
+            }, "Share Schedule to Messenger")
+            startActivity(chooserIntent)
+        }
+    }
+
     private fun leaderServiceView(): View = memberPage("Service", serviceReturnPage, "Schedule") { col ->
         col.add(serviceSummary()); col.space(16)
         col.add(dualButtons("Songs", { songsReturnPage = "service"; navigate("songs") }, "Song Lineups", { serviceWizard = false; saveLeaderDraft(); navigate("adminLineup") }))
@@ -3546,6 +3634,9 @@ class AdminActivity : AppCompatActivity() {
             col.add(memberRow(name, role, if (isLeaderBadge) "Leader" else "Member", photoUri = photoUri, uid = uid))
         }
         col.space(20)
+        col.add(memberButton("💬 Share to Messenger Group", Color.rgb(0, 132, 255)) {
+            shareServiceToMessenger(leaderDraft)
+        }, -1, 48); col.space(12)
         col.add(memberButton("Schedule Rehearsal", navy) { navigate("scheduleRehearsal") }, -1, 48); col.space(12)
         col.add(memberButton("Review / Save Changes") { navigate("reviewService") }, -1, 48); col.space(12)
         col.add(text("Delete Service", 13, Color.rgb(220, 38, 38), bold = true, centered = true).apply {
@@ -3850,7 +3941,21 @@ class AdminActivity : AppCompatActivity() {
 
         if (navigateAfter) {
             toast(if (status == "Published") "Schedule published." else "Draft saved.")
-            navigate("schedule")
+            if (status == "Published") {
+                AlertDialog.Builder(this@AdminActivity)
+                    .setTitle("Schedule Published! 🎵")
+                    .setMessage("Would you like to share the formatted schedule to your Facebook Messenger Group Chat now?")
+                    .setPositiveButton("Share to Messenger") { _, _ ->
+                        shareServiceToMessenger(leaderDraft)
+                        navigate("schedule")
+                    }
+                    .setNegativeButton("Later") { _, _ ->
+                        navigate("schedule")
+                    }
+                    .show()
+            } else {
+                navigate("schedule")
+            }
         }
 
     }
@@ -3888,6 +3993,10 @@ class AdminActivity : AppCompatActivity() {
                 else -> storeService("Published")
             }
         }))
+        col.space(12)
+        col.add(memberButton("💬 Share to Messenger Group", Color.rgb(0, 132, 255)) {
+            shareServiceToMessenger(leaderDraft)
+        }, -1, 48)
         col.space(12)
         col.add(text("Delete Service", 13, Color.rgb(220, 38, 38), bold = true, centered = true).apply {
             background = bg(Color.rgb(254, 242, 242), 12, Color.rgb(252, 165, 165))
